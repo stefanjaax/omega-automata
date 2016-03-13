@@ -49,6 +49,21 @@ data HeaderItem = NumStates Int | AP [ByteString] | Alias (AliasName, LabelExpr)
                   Properties [ByteString] | AcceptanceName AccName
                   deriving Show
 
+data EdgeItem = EdgeItem
+                { edgeLabel :: Maybe LabelExpr
+                , stateConj :: [Int]
+                , accSig :: Maybe [Int]
+                }
+
+data BodyItem = BodyItem
+                { stateLabel :: Maybe LabelExpr
+                , num :: Int
+                , descr :: Maybe ByteString
+                , stateAccSig :: Maybe [Int]
+                , edges :: [EdgeItem]
+                }
+
+
 instance MBoolExpr LabelExpr where
    _true = LBoolExpr True
    _false = LBoolExpr False
@@ -69,11 +84,54 @@ parseOmegaAutomaton :: Parser (OmegaAutomaton String ())
 parseOmegaAutomaton = undefined
 
 
-parseHoaHeader :: Parser [HeaderItem]
-parseHoaHeader = do
+parseHoa :: Parser ([HeaderItem], [BodyItem])
+parseHoa= do
   parseAttribute "HOA"
   string "v1"
-  fst <$> runStateT (many parseHeaderItem) (0, [])
+  (hs, (i,_)) <- runStateT (many parseHeaderItem) (0, [])
+  bs <- many $ parseBodyItem i
+  return (hs, bs)
+
+
+parseHoaBody :: Int -> Parser [BodyItem]
+parseHoaBody i = do
+  skipSpace
+  string "--Body--"
+  many $ parseBodyItem i
+
+
+parseBodyItem :: Int -> Parser BodyItem
+parseBodyItem i = do
+  parseAttribute "State"
+  l <- option Nothing $ Just <$> brackets (parseLabelExpr i [])
+  n <- decimal
+  d <- option Nothing $ Just <$> parseDoubleQuotedString
+  a <- option Nothing $ Just <$> parseAccSig
+  es <- many $ parseEdgeItem i
+  return BodyItem
+         { stateLabel = l
+         , num = n
+         , descr = d
+         , stateAccSig = a
+         , edges = es
+         }
+
+
+parseEdgeItem :: Int -> Parser EdgeItem
+parseEdgeItem i = do
+  skipSpace
+  l <- option Nothing $ Just <$> brackets (parseLabelExpr i [])
+  s <- parseSpaceSeparated decimal
+  a <- option Nothing $ Just <$> parseAccSig
+  return EdgeItem
+         { edgeLabel = l
+         , stateConj = s
+         , accSig = a
+         }
+
+
+parseAccSig :: Parser [Int]
+parseAccSig = curls $ parseSpaceSeparated decimal
 
 
 parseAttribute :: ByteString -> Parser ()
@@ -235,7 +293,7 @@ parseIdentifier :: Parser ByteString
 parseIdentifier = takeWhile1 (inClass "0-9a-zA-Z_-")
 
 
-parseSpaceSeparated :: Parser ByteString -> Parser [ByteString]
+parseSpaceSeparated :: Parser a -> Parser [a]
 parseSpaceSeparated p = p `sepBy1` many space
 
 
@@ -257,14 +315,24 @@ parseMBoolExpr p ops = buildExpressionParser ops term where
          p
 
 
+embracedBy :: Parser a -> ByteString -> ByteString -> Parser a
+embracedBy p s1 s2 = do
+  withoutSpace $ string s1
+  r <- p
+  withoutSpace $ string s2
+  return r
+
+
 parens :: Parser a -> Parser a
-parens p = do
-  skipSpace
-  string "("
-  a <- p
-  skipSpace
-  string ")"
-  return a
+parens p = embracedBy p "(" ")"
+
+
+brackets :: Parser a -> Parser a
+brackets p = embracedBy p "[" "]"
+
+
+curls :: Parser a -> Parser a
+curls p = embracedBy p "{" "}"
 
 
 withoutSpace :: Parser a -> Parser a
