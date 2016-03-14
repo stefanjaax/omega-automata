@@ -1,8 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Definition of parser for the Hanoi omega automata format
-module Hoa where
-import Automata
+module OmegaAutomata.Hoa where
+--import OmegaAutomata.Automata
 import Prelude hiding (takeWhile)
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 (pack)
@@ -64,6 +64,7 @@ data HeaderItem = NumStates Int
                 | AP [ByteString]
                 | Alias (AliasName, LabelExpr)
                 | Acceptance (Int, HoaAccCond)
+                | Start [Int]
                 | Tool [ByteString]
                 | Name ByteString
                 | Properties [ByteString]
@@ -75,6 +76,7 @@ data EdgeItem = EdgeItem
                 , stateConj :: [Int]
                 , accSig :: Maybe [Int]
                 }
+                deriving Show
 
 data BodyItem = BodyItem
                 { stateLabel :: Maybe LabelExpr
@@ -83,6 +85,7 @@ data BodyItem = BodyItem
                 , stateAccSig :: Maybe [Int]
                 , edges :: [EdgeItem]
                 }
+                deriving Show
 
 
 instance MBoolExpr LabelExpr where
@@ -101,34 +104,24 @@ instance MBoolExpr HoaAccCond where
   _false = AccBoolExpr False
 
 
-parseOmegaAutomaton :: Parser (OmegaAutomaton String ())
-parseOmegaAutomaton = undefined
-
-
 parseHoa :: Parser ([HeaderItem], [BodyItem])
 parseHoa= do
   parseAttribute "HOA"
   string "v1"
   (hs, (i,_)) <- runStateT (many parseHeaderItem) (0, [])
+  skipNonToken $ string "--BODY--"
   bs <- many $ parseBodyItem i
-  string "--END--"
+  skipNonToken $ string "--END--"
   return (hs, bs)
-
-
-parseHoaBody :: Int -> Parser [BodyItem]
-parseHoaBody i = do
-  skipSpace
-  string "--BODY--"
-  many $ parseBodyItem i
 
 
 parseBodyItem :: Int -> Parser BodyItem
 parseBodyItem i = do
-  parseAttribute "State"
-  l <- option Nothing $ Just <$> brackets (parseLabelExpr i [])
-  n <- decimal
-  d <- option Nothing $ Just <$> parseDoubleQuotedString
-  a <- option Nothing $ Just <$> parseAccSig
+  skipNonToken $ parseAttribute "State"
+  l <- skipNonToken $ option Nothing $ Just <$> brackets (parseLabelExpr i [])
+  n <- skipNonToken $ decimal
+  d <- skipNonToken $ option Nothing $ Just <$> parseDoubleQuotedString
+  a <- skipNonToken $ option Nothing $ Just <$> parseAccSig
   es <- many $ parseEdgeItem i
   return BodyItem
          { stateLabel = l
@@ -141,10 +134,9 @@ parseBodyItem i = do
 
 parseEdgeItem :: Int -> Parser EdgeItem
 parseEdgeItem i = do
-  skipSpace
-  l <- option Nothing $ Just <$> brackets (parseLabelExpr i [])
-  s <- parseSpaceSeparated decimal
-  a <- option Nothing $ Just <$> parseAccSig
+  l <- skipNonToken $ option Nothing $ Just <$> brackets (parseLabelExpr i [])
+  s <- skipNonToken $ parseSpaceSeparated decimal
+  a <- skipNonToken $ option Nothing $ Just <$> parseAccSig
   return EdgeItem
          { edgeLabel = l
          , stateConj = s
@@ -158,17 +150,15 @@ parseAccSig = curls $ parseSpaceSeparated decimal
 
 parseAttribute :: ByteString -> Parser ()
 parseAttribute a = do
-  skipSpace
-  string a
-  skipSpace
-  string ":"
-  skipSpace
+  skipNonToken $ string a
+  skipNonToken $ string ":"
+  skipNonToken $ return ()
 
 
 parseProperties :: Parser HeaderItem
 parseProperties = do
   parseAttribute "properties"
-  skipSpace
+  skipNonToken $ return ()
   Properties <$> (parseSpaceSeparated parseIdentifier)
 
 
@@ -177,6 +167,7 @@ parseHeaderItem = do
   (i, as) <- get
   r <- choice $ lift <$> [parseAccName,
                           parseAP,
+                          parseStart,
                           parseAccName,
                           parseNumStates,
                           parseHoaAccCond,
@@ -201,6 +192,12 @@ parseName :: Parser HeaderItem
 parseName = do
   parseAttribute "name"
   Name <$> parseDoubleQuotedString
+
+
+parseStart :: Parser HeaderItem
+parseStart = do
+  parseAttribute "Start"
+  Start <$> parseSpaceSeparated decimal
 
 
 parseTool :: Parser HeaderItem
@@ -240,10 +237,10 @@ parseAccName = do
    (string "co-Buchi" >> return CoBuchi) <|>
    (string "all" >> return All) <|>
    (string "none" >> return None) <|>
-   (GBuchi <$> (string "generalized-Buchi" >> decimal)) <|>
-   (GCoBuchi <$> (string "generalized-co-Buchi" >> decimal)) <|>
-   (Streett <$> (string "Streett" >> decimal)) <|>
-   (Rabin <$> (string "Rabin" >> decimal)) <|>
+   (GBuchi <$> (string "generalized-Buchi" >> skipNonToken decimal)) <|>
+   (GCoBuchi <$> (string "generalized-co-Buchi" >> skipNonToken decimal)) <|>
+   (Streett <$> (string "Streett" >> skipNonToken decimal)) <|>
+   (Rabin <$> (string "Rabin" >> skipNonToken decimal)) <|>
    parseParityName <|>
    parseGRabinName))
 
@@ -280,7 +277,7 @@ parseLabelExpr i as = parseMBoolExpr p boolOps where
 parseHoaAccCond :: Parser HeaderItem
 parseHoaAccCond = do
   parseAttribute "Acceptance"
-  i <- decimal
+  i <- skipNonToken decimal
   acc <- parseAccCond i
   return (Acceptance (i, acc)) where
     parseAccCond i = parseMBoolExpr (p i) monotonicBoolOps
@@ -288,15 +285,7 @@ parseHoaAccCond = do
           parseInf i <|>
           parseCompFin i<|>
           parseCompInf i
-    parseAcc str p = do
-      string str
-      skipSpace
-      string "("
-      skipSpace
-      result <- p
-      skipSpace
-      string ")"
-      return result
+    parseAcc str p = skipNonToken (string str) >> parens p
     parseFin i = parseAcc "Fin" (FinCond <$> parseIntInRange i)
     parseInf i = parseAcc "Inf" (InfCond <$> parseIntInRange i)
     parseCompFin i = parseAcc "Fin" (string "!" >> (FinCond <$> parseIntInRange i))
@@ -320,28 +309,28 @@ parseSpaceSeparated p = p `sepBy1` many space
 
 
 monotonicBoolOps :: MBoolExpr a => [[Operator ByteString a]]
-monotonicBoolOps = [[Infix (withoutSpace (string "|") >> return _or) AssocLeft]
-                   ,[Infix (withoutSpace (string "&") >> return _and) AssocLeft]
+monotonicBoolOps = [[Infix (skipNonToken (string "|") >> return _or) AssocLeft]
+                   ,[Infix (skipNonToken (string "&") >> return _and) AssocLeft]
                    ]
 
 
 boolOps :: BoolExpr a => [[Operator ByteString a]]
-boolOps = [[Prefix (withoutSpace (string "!") >> return _not)]] ++ monotonicBoolOps
+boolOps = [[Prefix (skipNonToken (string "!") >> return _not)]] ++ monotonicBoolOps
 
 
 parseMBoolExpr :: (MBoolExpr a) => Parser a -> [[Operator ByteString a]] -> Parser a
 parseMBoolExpr p ops = buildExpressionParser ops term where
-  term = (withoutSpace (string "t") >> return _true) <|>
-         (withoutSpace (string "f") >> return _false) <|>
+  term = (skipNonToken (string "t") >> return _true) <|>
+         (skipNonToken (string "f") >> return _false) <|>
          parens (parseMBoolExpr p ops) <|>
          p
 
 
 embracedBy :: Parser a -> ByteString -> ByteString -> Parser a
 embracedBy p s1 s2 = do
-  withoutSpace $ string s1
+  skipNonToken $ string s1
   r <- p
-  withoutSpace $ string s2
+  skipNonToken $ string s2
   return r
 
 
@@ -357,8 +346,13 @@ curls :: Parser a -> Parser a
 curls p = embracedBy p "{" "}"
 
 
-withoutSpace :: Parser a -> Parser a
-withoutSpace p = skipSpace >> p
+skipNonToken :: Parser a -> Parser a
+skipNonToken p =  do
+  skipSpace
+  many $ do
+    string "/*" *> manyTill anyChar (string "*/")
+    skipSpace
+  p
 
 
 parseDoubleQuotedString :: Parser ByteString

@@ -16,6 +16,9 @@ build-type:          Simple
 cabal-version:       >=1.8
 
 library
+  exposed-modules:
+    OmegaAutomata.Hoa
+    OmegaAutomata.Automata
   hs-source-dirs:
     src
   build-depends:
@@ -23,5 +26,20 @@ library
     , fgl                           >= 5.5.2.3
     , attoparsec                    >= 0.12.1.1
     , attoparsec-expr               >= 0.1.1.2
+    , containers                    >= 0.5.6.2
+    , bytestring                    >= 0.10.6.0
+    , mtl                           >= 2.2.1
   ghc-options:
     -Wall
+
+executable ldba-tool
+  hs-source-dirs:
+    ldba-tool
+  main-is:
+    Main.hs
+  build-depends:
+      base
+    , omega-automata
+    , attoparsec
+    , bytestring
+  ghc-options: -Wall

@@ -1,5 +1,5 @@
 -- | Definition of various kinds of omega automata
-module Automata where
+module OmegaAutomata.Automata where
 import Data.Set (Set)
 import Data.Graph.Inductive (Node, lsuc, Gr)
 import Control.Applicative ((<$>))
@@ -96,6 +96,7 @@ instance OmegaRegular TNRA where
 
 instance TransBasedAccCond TNBAccCond where
   convTransToAccCond (TNBAccCond ts) = [[Inf ts]]
+
 
 instance TransBasedAccCond TGNBAccCond where
   convTransToAccCond (TGNBAccCond ts) = [[Inf fs] | fs <- ts]
