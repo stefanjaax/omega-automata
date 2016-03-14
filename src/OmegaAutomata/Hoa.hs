@@ -27,27 +27,48 @@ class (MBoolExpr a) => BoolExpr a where
   _not :: a -> a
 
 
-data LabelExpr = LBoolExpr Bool | RefAP Int | RefAlias AliasName | LNot LabelExpr |
-                 LAnd LabelExpr LabelExpr | LOr LabelExpr LabelExpr
-                 deriving Show
+data LabelExpr = LBoolExpr Bool
+               | RefAP Int
+               | RefAlias AliasName
+               | LNot LabelExpr
+               | LAnd LabelExpr LabelExpr
+               | LOr LabelExpr LabelExpr
+               deriving Show
 
-data HoaAccCond = FinCond Int | InfCond Int | CompFinCond Int | CompInfCond Int |
-                  AccAnd HoaAccCond HoaAccCond | AccOr HoaAccCond HoaAccCond |
-                  AccBoolExpr Bool
-                  deriving Show
+data HoaAccCond = FinCond Int
+                | InfCond Int
+                | CompFinCond Int
+                | CompInfCond Int
+                | AccAnd HoaAccCond HoaAccCond
+                | AccOr HoaAccCond HoaAccCond
+                | AccBoolExpr Bool
+                deriving Show
 
 data MinMax = Min | Max deriving Show
 
 data EvenOdd = Even | Odd deriving Show
 
-data AccName = Buchi | GBuchi Int | CoBuchi | GCoBuchi Int | Streett Int |
-               Rabin Int | GRabin Int [Int] | Parity MinMax EvenOdd Int | All | None
-               deriving Show
+data AccName = Buchi
+             | GBuchi Int
+             | CoBuchi
+             | GCoBuchi Int
+             | Streett Int
+             | Rabin Int
+             | GRabin Int [Int]
+             | Parity MinMax EvenOdd Int
+             | All
+             | None
+             deriving Show
 
-data HeaderItem = NumStates Int | AP [ByteString] | Alias (AliasName, LabelExpr) |
-                  Acceptance (Int, HoaAccCond) | Tool [ByteString] | Name ByteString |
-                  Properties [ByteString] | AcceptanceName AccName
-                  deriving Show
+data HeaderItem = NumStates Int
+                | AP [ByteString]
+                | Alias (AliasName, LabelExpr)
+                | Acceptance (Int, HoaAccCond)
+                | Tool [ByteString]
+                | Name ByteString
+                | Properties [ByteString]
+                | AcceptanceName AccName
+                deriving Show
 
 data EdgeItem = EdgeItem
                 { edgeLabel :: Maybe LabelExpr
@@ -90,13 +111,14 @@ parseHoa= do
   string "v1"
   (hs, (i,_)) <- runStateT (many parseHeaderItem) (0, [])
   bs <- many $ parseBodyItem i
+  string "--END--"
   return (hs, bs)
 
 
 parseHoaBody :: Int -> Parser [BodyItem]
 parseHoaBody i = do
   skipSpace
-  string "--Body--"
+  string "--BODY--"
   many $ parseBodyItem i
 
 
