@@ -2,7 +2,7 @@
 
 -- | Definition of parser for the Hanoi omega automata format
 module OmegaAutomata.Hoa where
---import OmegaAutomata.Automata
+import OmegaAutomata.Automata
 import Prelude hiding (takeWhile)
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 (pack)
@@ -108,21 +108,21 @@ parseHoa :: Parser ([HeaderItem], [BodyItem])
 parseHoa= do
   parseAttribute "HOA"
   string "v1"
-  (hs, (i,_)) <- runStateT (many parseHeaderItem) (0, [])
+  (hs, (i, as)) <- runStateT (many parseHeaderItem) (0, [])
   skipNonToken $ string "--BODY--"
-  bs <- many $ parseBodyItem i
+  bs <- many $ parseBodyItem i as
   skipNonToken $ string "--END--"
   return (hs, bs)
 
 
-parseBodyItem :: Int -> Parser BodyItem
-parseBodyItem i = do
+parseBodyItem :: Int -> [AliasName] -> Parser BodyItem
+parseBodyItem i as = do
   skipNonToken $ parseAttribute "State"
-  l <- skipNonToken $ option Nothing $ Just <$> brackets (parseLabelExpr i [])
+  l <- skipNonToken $ option Nothing $ Just <$> brackets (parseLabelExpr i as)
   n <- skipNonToken $ decimal
   d <- skipNonToken $ option Nothing $ Just <$> parseDoubleQuotedString
   a <- skipNonToken $ option Nothing $ Just <$> parseAccSig
-  es <- many $ parseEdgeItem i
+  es <- many $ parseEdgeItem i as
   return BodyItem
          { stateLabel = l
          , num = n
@@ -132,10 +132,10 @@ parseBodyItem i = do
          }
 
 
-parseEdgeItem :: Int -> Parser EdgeItem
-parseEdgeItem i = do
-  l <- skipNonToken $ option Nothing $ Just <$> brackets (parseLabelExpr i [])
-  s <- skipNonToken $ parseSpaceSeparated decimal
+parseEdgeItem :: Int -> [AliasName] -> Parser EdgeItem
+parseEdgeItem i as = do
+  l <- skipNonToken $ option Nothing $ Just <$> brackets (parseLabelExpr i as)
+  s <- skipNonToken $ parseConjunction decimal
   a <- skipNonToken $ option Nothing $ Just <$> parseAccSig
   return EdgeItem
          { edgeLabel = l
@@ -197,7 +197,7 @@ parseName = do
 parseStart :: Parser HeaderItem
 parseStart = do
   parseAttribute "Start"
-  Start <$> parseSpaceSeparated decimal
+  Start <$> decimal `sepBy1` skipNonToken "&"
 
 
 parseTool :: Parser HeaderItem
@@ -270,8 +270,8 @@ parseGRabinName = do
 
 parseLabelExpr :: Int -> [AliasName] -> Parser LabelExpr
 parseLabelExpr i as = parseMBoolExpr p boolOps where
-  p = RefAP <$> parseIntInRange i <|>
-      RefAlias <$> parseRefAlias as
+  p = RefAP <$> skipNonToken (parseIntInRange i) <|>
+      RefAlias <$> skipNonToken (parseRefAlias as)
 
 
 parseHoaAccCond :: Parser HeaderItem
@@ -305,7 +305,11 @@ parseIdentifier = takeWhile1 (inClass "0-9a-zA-Z_-")
 
 
 parseSpaceSeparated :: Parser a -> Parser [a]
-parseSpaceSeparated p = p `sepBy1` many space
+parseSpaceSeparated p = p `sepBy1` many (string " ")
+
+
+parseConjunction :: Parser a -> Parser [a]
+parseConjunction p = p `sepBy1` skipNonToken (string "&")
 
 
 monotonicBoolOps :: MBoolExpr a => [[Operator ByteString a]]
