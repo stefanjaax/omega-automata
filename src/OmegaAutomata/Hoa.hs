@@ -5,13 +5,14 @@ module OmegaAutomata.Hoa where
 import OmegaAutomata.Automata
 import Prelude hiding (takeWhile)
 import Data.ByteString (ByteString)
-import Data.ByteString.Char8 (pack)
+import Data.ByteString.Char8 (pack, unpack)
 import Data.Attoparsec.ByteString hiding (takeWhile)
 import Data.Attoparsec.ByteString.Char8 hiding (takeWhile1, inClass)
 import Data.Attoparsec.Expr
 import Control.Applicative
 import Control.Monad (guard)
 import Control.Monad.State as SM
+import Data.List (intersperse)
 
 type AliasName = ByteString
 
@@ -105,7 +106,7 @@ instance MBoolExpr HoaAccCond where
 
 
 parseHoa :: Parser ([HeaderItem], [BodyItem])
-parseHoa= do
+parseHoa = do
   parseAttribute "HOA"
   string "v1"
   (hs, (i, as)) <- runStateT (many parseHeaderItem) (0, [])
@@ -330,6 +331,77 @@ parseMBoolExpr p ops = buildExpressionParser ops term where
          p
 
 
+toHoa :: ([HeaderItem], [BodyItem]) -> String
+toHoa (hs, bs) = unlines $ ["Hoa: v1"] ++
+                            (headerItemToHoa <$> hs) ++
+                            ["--BODY--"] ++
+                            [concat (bodyItemToHoa <$> bs) ++ "--END--"]
+
+
+headerItemToHoa :: HeaderItem -> String
+headerItemToHoa (NumStates i) = "States: " ++ show i
+headerItemToHoa (AP as) = "AP: " ++ show (length as) ++
+                          " " ++ unwords ((inDoubleQuotes . unpack) <$> as)
+headerItemToHoa (Alias (n,l)) = "Alias: @" ++ unpack n ++ " " ++ labelExprToHoa l
+headerItemToHoa (Acceptance (i, a)) = "Acceptance: " ++ show i ++ " " ++ accCondToHoa a
+headerItemToHoa (Start ss) = "Start: " ++ concat  (intersperse " & " (show <$> ss))
+headerItemToHoa (Tool ts) = "tool: " ++ unwords (unpack <$> ts)
+headerItemToHoa (Name s) = "name: " ++ inDoubleQuotes (unpack s)
+headerItemToHoa (Properties ps) = "properties: " ++ unwords (unpack <$> ps)
+headerItemToHoa (AcceptanceName n) = "acc-name: " ++ accNameToHoa n
+
+
+accNameToHoa :: AccName -> String
+accNameToHoa a = case a of
+  Buchi -> "Buchi"
+  CoBuchi -> "coBuchi"
+  All -> "all"
+  None -> "none"
+  (GBuchi i) -> "generalized-Buchi " ++ show i
+  (GCoBuchi i) -> "generalized-co-Buchi " ++ show i
+  (Streett i) -> "Streett " ++ show i
+  (Rabin i) -> "Rabin " ++ show i
+  (Parity a b i) -> "Parity " ++ minMaxToHoa a ++ evenOddToHoa b ++ " " ++ show i where
+    minMaxToHoa Min = "min"
+    minMaxToHoa Max = "max"
+    evenOddToHoa Even = "even"
+    evenOddToHoa Odd = "odd"
+  (GRabin i is) -> "generalized-Rabin " ++ show i ++ " " ++ unwords (show <$> is)
+
+
+accCondToHoa :: HoaAccCond -> String
+accCondToHoa (FinCond i) = "Fin" ++ inParens (show i)
+accCondToHoa (InfCond i) = "Inf" ++ inParens (show i)
+accCondToHoa (CompFinCond i) = "Fin" ++ inParens ("!" ++ show i)
+accCondToHoa (CompInfCond i) = "Inf" ++ inParens ("!" ++ show i)
+accCondToHoa (AccAnd e1 e2) = inParens (accCondToHoa e1 ++ " & " ++ accCondToHoa e2)
+accCondToHoa (AccOr e1 e2) = inParens (accCondToHoa e1 ++ " | " ++ accCondToHoa e2)
+accCondToHoa (AccBoolExpr b) = if b then "t" else "f"
+
+
+labelExprToHoa :: LabelExpr -> String
+labelExprToHoa (LBoolExpr b) = if b then "t" else "f"
+labelExprToHoa (RefAP i) = show i
+labelExprToHoa (RefAlias s) = "@" ++ unpack s
+labelExprToHoa (LNot e) = "!" ++ labelExprToHoa e
+labelExprToHoa (LAnd e1 e2) = inParens (labelExprToHoa e1 ++ " & " ++ labelExprToHoa e2)
+labelExprToHoa (LOr e1 e2) = inParens (labelExprToHoa e1 ++ " | " ++ labelExprToHoa e2)
+
+
+bodyItemToHoa :: BodyItem -> String
+bodyItemToHoa b = ("State: " ++
+                   maybeBlank labelExprToHoa (stateLabel b) ++
+                   show (num b) ++ " " ++
+                   maybeBlank (inDoubleQuotes . unpack) (descr b) ++
+                   maybeBlank (unwords . (map show)) (stateAccSig b) ++ "\n" ++
+                   unlines [maybeBlank (inBrackets . labelExprToHoa) (edgeLabel e) ++
+                            " " ++
+                            concat (intersperse "&" (show <$> stateConj e)) ++
+                            " " ++
+                            maybeBlank (inCurls . unwords . map show) (accSig e)
+                            | e <- edges b])
+
+
 embracedBy :: Parser a -> ByteString -> ByteString -> Parser a
 embracedBy p s1 s2 = do
   skipNonToken $ string s1
@@ -372,3 +444,24 @@ parseIntInRange i = do
   x <- decimal
   guard (x >= 0 && x < i) <?> "Reference out of range."
   return x
+
+
+maybeBlank :: (a -> String) -> Maybe a -> String
+maybeBlank _ Nothing = " "
+maybeBlank f (Just a) = f a
+
+
+inDoubleQuotes :: String -> String
+inDoubleQuotes s = "\"" ++ s ++ "\""
+
+
+inCurls :: String -> String
+inCurls s = "{" ++ s ++ "}"
+
+
+inParens :: String -> String
+inParens s = "(" ++ s ++ ")"
+
+
+inBrackets :: String -> String
+inBrackets s = "[" ++ s ++ "]"
