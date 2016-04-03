@@ -1,7 +1,7 @@
 -- | Definition of various kinds of omega automata
 module OmegaAutomata.Automata where
-import Data.Set (Set)
-import Data.Graph.Inductive (Node, lsuc, Gr)
+import Data.Set (Set, fromList, toList)
+import Data.Graph.Inductive (Node, lsuc, Gr, mkGraph)
 import Control.Applicative ((<$>))
 
 
@@ -12,7 +12,7 @@ data PointedGraph alphabet label = PointedGraph
                                    { digraph :: Gr label alphabet
                                    , start :: Set State
                                    }
-
+                                   deriving Show
 
 
 outTrans :: PointedGraph alphabet label -> State -> [Trans alphabet]
@@ -31,9 +31,10 @@ data Automaton acc alphabet label = Automaton
                                     { graph :: PointedGraph alphabet label
                                     , accept :: acc
                                     }
+                                    deriving Show
 
 
-newtype NBAccCond = NBAccCond [State]
+newtype NBAccCond = NBAccCond (Set State)
 newtype GNBAccCond = GNBAccCond [[State]]
 newtype TNBAccCond alphabet = TNBAccCond [Trans alphabet]
 newtype TGNBAccCond alphabet = TGNBAccCond [[Trans alphabet]]
@@ -43,6 +44,7 @@ newtype TNRAccCond alphabet = TNRAccCond [([Trans alphabet], [Trans alphabet])]
 
 type OmegaAutomaton alphabet label = Automaton [[AccCond alphabet]] alphabet label
 newtype NBA alphabet label = NBA (Automaton NBAccCond alphabet label)
+newtype TNBA alphabet label = TNBA (Automaton (TNBAccCond alphabet) alphabet label)
 newtype GNBA alphabet label = GNBA (Automaton GNBAccCond alphabet label)
 newtype TGNBA alphabet label = TGNBA (Automaton (TGNBAccCond alphabet) alphabet label)
 newtype NRA alphabet label = NRA (Automaton NRAccCond alphabet label)
@@ -62,6 +64,29 @@ class StateBasedAccCond a where
 class OmegaRegular a where
   convToOmegaAutomaton :: a alphabet label -> OmegaAutomaton alphabet label
 
+
+makeNBA :: [(State, label)] ->
+           [(State, State, alphabet)] ->
+           [State] ->
+           [State] ->
+           NBA alphabet label
+makeNBA qs ts ss as = NBA $ Automaton{ graph = PointedGraph{ digraph = mkGraph qs ts
+                                                           , start = fromList ss
+                                                           }
+                                     , accept = NBAccCond (fromList as)
+                                     }
+
+
+makeTNBA :: [(State, label)] ->
+            [(State, State, alphabet)] ->
+            [State] ->
+            [(State, State, alphabet)] ->
+            TNBA alphabet label
+makeTNBA qs ts ss as = TNBA $ Automaton{ graph = PointedGraph{ digraph = mkGraph qs ts
+                                                           , start = fromList ss
+                                                           }
+                                       , accept = TNBAccCond [(q1,a,q2) | (q1,q2,a) <- as]
+                                       }
 
 
 instance OmegaRegular NBA where
@@ -107,7 +132,7 @@ instance TransBasedAccCond TNRAccCond where
 
 
 instance StateBasedAccCond NBAccCond where
-  convStatesToAccCond (NBAccCond qs) pg = [[Inf (statesToOutTrans pg qs)]]
+  convStatesToAccCond (NBAccCond qs) pg = [[Inf (statesToOutTrans pg (toList qs))]]
 
 
 instance StateBasedAccCond GNBAccCond where

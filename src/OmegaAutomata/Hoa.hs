@@ -2,7 +2,7 @@
 
 -- | Definition of parser for the Hanoi omega automata format
 module OmegaAutomata.Hoa where
-import OmegaAutomata.Automata
+import OmegaAutomata.Automata as A
 import Prelude hiding (takeWhile)
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 (pack, unpack)
@@ -13,6 +13,7 @@ import Control.Applicative
 import Control.Monad (guard)
 import Control.Monad.State as SM
 import Data.List (intersperse)
+import qualified Data.Set as S
 
 type AliasName = ByteString
 
@@ -34,7 +35,7 @@ data LabelExpr = LBoolExpr Bool
                | LNot LabelExpr
                | LAnd LabelExpr LabelExpr
                | LOr LabelExpr LabelExpr
-               deriving Show
+               deriving (Show, Eq)
 
 data HoaAccCond = FinCond Int
                 | InfCond Int
@@ -114,6 +115,51 @@ parseHoa = do
   bs <- many $ parseBodyItem i as
   skipNonToken $ string "--END--"
   return (hs, bs)
+
+
+toNBAAccCond :: [BodyItem] -> NBAccCond
+toNBAAccCond bs = NBAccCond $ S.fromList [i | BodyItem _ i _ (Just _) _ <- bs]
+
+
+hoaToEdges :: [BodyItem] -> [(A.State, A.State, Maybe LabelExpr)]
+hoaToEdges bs = [(q1, q2, l) | b <- bs
+                             , e <- edges b
+                             , let q1 = num b
+                             , q2 <- stateConj e
+                             , let l = edgeLabel e]
+
+
+hoaToAccEdges :: [BodyItem] -> [(A.State, A.State, Maybe LabelExpr)]
+hoaToAccEdges bs = [(q1, q2, l) | b <- bs
+                                , e <- edges b
+                                , accSig e /= Nothing
+                                , let q1 = num b
+                                , q2 <- stateConj e
+                                , let l = edgeLabel e]
+
+
+hoaToStates :: [BodyItem] -> [(A.State, Maybe LabelExpr)]
+hoaToStates bs = [(q,l) | BodyItem l q _ _ _ <- bs]
+
+
+hoaToStartStates :: [HeaderItem] -> [A.State]
+hoaToStartStates hs = concat [qs | Start qs <- hs]
+
+
+hoaToNBA :: ([HeaderItem], [BodyItem]) -> A.NBA (Maybe LabelExpr) (Maybe LabelExpr)
+hoaToNBA (hs, bs) = let qs = hoaToStates bs
+                        ts = hoaToEdges bs
+                        ss = hoaToStartStates hs
+                        as = [q | BodyItem _ q _ (Just _) _ <- bs] in
+                          makeNBA qs ts ss as
+
+
+hoaToTNBA :: ([HeaderItem], [BodyItem]) -> A.TNBA (Maybe LabelExpr) (Maybe LabelExpr)
+hoaToTNBA (hs, bs) = let qs = hoaToStates bs
+                         ts = hoaToEdges bs
+                         ss = hoaToStartStates hs
+                         as = hoaToAccEdges bs in
+                          makeTNBA qs ts ss as
 
 
 parseBodyItem :: Int -> [AliasName] -> Parser BodyItem
