@@ -19,6 +19,7 @@ library
   exposed-modules:
     OmegaAutomata.Hoa
     OmegaAutomata.Automata
+    OmegaAutomata.LDBA
   hs-source-dirs:
     src
   build-depends:
