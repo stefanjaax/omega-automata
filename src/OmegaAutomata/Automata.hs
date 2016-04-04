@@ -1,145 +1,131 @@
 -- | Definition of various kinds of omega automata
 module OmegaAutomata.Automata where
-import Data.Set (Set, fromList, toList)
-import Data.Graph.Inductive (Node, lsuc, Gr, mkGraph)
-import Control.Applicative ((<$>))
+import qualified Data.Set as S
+import Data.Graph.Inductive
+import qualified Data.Map as M
+import qualified Data.Bimap as B
+
+type State = Int
+
+data NBA q a l = NBA{ states :: S.Set q
+                    , bimap :: B.Bimap q Node
+                    , graph :: Gr l a
+                    , start :: S.Set q
+                    , accept :: S.Set q
+                    }
+
+toNode :: (Ord q) => NBA q a l -> q -> Node
+toNode a q = (bimap a) B.! q
 
 
-type State = Node
-type Trans alphabet =  (State, alphabet, State)
-data AccCond alphabet = Fin [Trans alphabet] | Inf [Trans alphabet]
-data PointedGraph alphabet label = PointedGraph
-                                   { digraph :: Gr label alphabet
-                                   , start :: Set State
-                                   }
-                                   deriving Show
+toState :: (Ord q) => NBA q a l -> Node -> q
+toState a q = (bimap a) B.!> q
 
 
-outTrans :: PointedGraph alphabet label -> State -> [Trans alphabet]
-outTrans pg q = let dg = digraph pg
-                    a_succ = lsuc dg q in
-                  [(q, a, q') | (q', a) <- a_succ]
+succ :: (Ord q) => NBA q a l -> q -> [q]
+succ a q = (toState a . fst) <$> lsuc (graph a) (toNode a q)
 
 
-
-statesToOutTrans :: PointedGraph alphabet label -> [State] -> [Trans alphabet]
-statesToOutTrans pg qs = concat $ outTrans pg <$> qs
-
+pre :: (Ord q) => NBA q a l -> q -> [q]
+pre a q = (toState a . fst) <$> lpre (graph a) (toNode a q)
 
 
-data Automaton acc alphabet label = Automaton
-                                    { graph :: PointedGraph alphabet label
-                                    , accept :: acc
-                                    }
-                                    deriving Show
+aSucc :: (Ord q) => NBA q a l -> q -> a -> [q]
+aSucc a q b = [toState a q' | (q', b) <- lsuc (graph a) (toNode a q)]
 
 
-newtype NBAccCond = NBAccCond (Set State)
-newtype GNBAccCond = GNBAccCond [[State]]
-newtype TNBAccCond alphabet = TNBAccCond [Trans alphabet]
-newtype TGNBAccCond alphabet = TGNBAccCond [[Trans alphabet]]
-newtype NRAccCond = NRAccCond [([State], [State])]
-newtype TNRAccCond alphabet = TNRAccCond [([Trans alphabet], [Trans alphabet])]
+aPre :: (Ord q) => NBA q a l -> q -> a -> [q]
+aPre a q b = [toState a q' | (q', b) <- lpre (graph a) (toNode a q)]
 
 
-type OmegaAutomaton alphabet label = Automaton [[AccCond alphabet]] alphabet label
-newtype NBA alphabet label = NBA (Automaton NBAccCond alphabet label)
-newtype TNBA alphabet label = TNBA (Automaton (TNBAccCond alphabet) alphabet label)
-newtype GNBA alphabet label = GNBA (Automaton GNBAccCond alphabet label)
-newtype TGNBA alphabet label = TGNBA (Automaton (TGNBAccCond alphabet) alphabet label)
-newtype NRA alphabet label = NRA (Automaton NRAccCond alphabet label)
-newtype TNRA alphabet label = TNRA (Automaton (TNRAccCond alphabet) alphabet label)
+trans :: (Ord q) => NBA q a l -> [(q, a, q)]
+trans a = [(q1, l, q2) | (i1, i2, l) <- labEdges (graph a)
+                       , let q1 = (bimap a) B.!> i1
+                       , let q2 = (bimap a) B.!> i2]
 
 
-class TransBasedAccCond a where
-  convTransToAccCond :: a alphabet -> [[AccCond alphabet]]
+annotateStates :: (Ord q, Ord i) => i -> NBA q a l -> NBA (i, q) a l
+annotateStates i a = let annotate = S.map (\x -> (i, x)) in
+                      NBA{ states = annotate (states a)
+                         , bimap = B.fromList [((i, q), n) | (q, n) <- (B.assocs (bimap a))]
+                         , graph = graph a
+                         , start = annotate (start a)
+                         , accept = annotate (accept a)
+                         }
 
 
-
-class StateBasedAccCond a where
-  convStatesToAccCond :: a -> PointedGraph alphabet label -> [[AccCond alphabet]]
-
-
-
-class OmegaRegular a where
-  convToOmegaAutomaton :: a alphabet label -> OmegaAutomaton alphabet label
-
-
-makeNBA :: [(State, label)] ->
-           [(State, State, alphabet)] ->
-           [State] ->
-           [State] ->
-           NBA alphabet label
-makeNBA qs ts ss as = NBA $ Automaton{ graph = PointedGraph{ digraph = mkGraph qs ts
-                                                           , start = fromList ss
-                                                           }
-                                     , accept = NBAccCond (fromList as)
-                                     }
+insertStates :: (Ord q) => [(q, l)] -> NBA q a l -> NBA q a l
+insertStates qls a = let qs = fst <$> qls
+                         ls = snd <$> qls
+                         newNs = newNodes (length qs) (graph a)
+                         newBimap = B.fromList (B.assocs (bimap a) ++ zip qs newNs) in
+                          NBA{ states = S.union (states a) (S.fromList qs)
+                             , bimap = newBimap
+                             , graph = insNodes (zip newNs ls) (graph a)
+                             , start = start a
+                             , accept = accept a
+                             }
 
 
-makeTNBA :: [(State, label)] ->
-            [(State, State, alphabet)] ->
-            [State] ->
-            [(State, State, alphabet)] ->
-            TNBA alphabet label
-makeTNBA qs ts ss as = TNBA $ Automaton{ graph = PointedGraph{ digraph = mkGraph qs ts
-                                                           , start = fromList ss
-                                                           }
-                                       , accept = TNBAccCond [(q1,a,q2) | (q1,q2,a) <- as]
-                                       }
+label :: (Ord q) => q -> NBA q a l -> l
+label q a = let l = lab (graph a) (bimap a B.! q) in
+  case l of
+    (Just x) -> x
+    Nothing -> error "Node has no label."
 
 
-instance OmegaRegular NBA where
-  convToOmegaAutomaton (NBA (Automaton pg a)) = Automaton { graph = pg
-                                                          , accept = convStatesToAccCond a pg
-                                                          }
+insertTrans :: (Ord q) => [(q, a, q)] -> NBA q a l -> NBA q a l
+insertTrans ts a = let edges = [(i1, i2, l) | (q1, l, q2) <- ts
+                                            , let i1 = bimap a B.! q1
+                                            , let i2 = bimap a B.! q2] in
+                        a{graph = insEdges edges (graph a)}
 
 
-instance OmegaRegular GNBA where
-  convToOmegaAutomaton (GNBA (Automaton pg a)) = Automaton { graph = pg
-                                                           , accept = convStatesToAccCond a pg
-                                                           }
+buchiUnion :: (Ord q) => NBA q a l -> NBA q a l -> NBA (Int, q) a l
+buchiUnion a1 a2 = let (a1', a2') = (annotateStates 1 a1, annotateStates 2 a2)
+                       qs2' = [(q, label q a2') | q <- S.toList (states a2')]
+                       trans2' = trans a2'
+                       a = insertTrans trans2' $ insertStates qs2' a1' in
+                        a{ start = S.union (start a1') (start a2')
+                         , accept = S.union (accept a1') (accept a2')}
 
 
-instance OmegaRegular NRA where
-  convToOmegaAutomaton (NRA (Automaton pg a)) = Automaton { graph = pg
-                                                          , accept = convStatesToAccCond a pg
-                                                          }
+buchiIntersection :: (Ord q) => NBA q a l -> NBA q a l -> NBA (Int, (q, q)) a (l, l)
+buchiIntersection a1 a2 = let stateList = S.toList . states
+                              newStates = zip (stateList a1) (stateList a2)
+                              newTrans = [((q1, q2), l, (q1', q2')) | (q1, l, q1') <- trans a1
+                                                                    , (q2, l, q2') <- trans a2
+                                                                    , not (S.member q1 (accept a1))
+                                                                    , not (S.member q2 (accept a2))]
+                              trans1 = [((1, (q1, q2)), l, (2, (q1', q2'))) | (q1, l, q1') <- trans a1
+                                                                            , (S.member q1 (accept a1))
+                                                                            , (q2, l, q2') <- trans a2]
+                              trans2 = [((2, (q1, q2)), l, (1, (q1', q2'))) | (q2, l, q2') <- trans a2
+                                                                            , (S.member q2 (accept a2))
+                                                                            , (q1, l, q1') <- trans a1]
+                              newLabelQs = [((q1, q2), (l1, l2)) | (q1, q2) <- newStates
+                                                                 , let l1 = label q1 a1
+                                                                 , let l2 = label q2 a2]
+                              newStart = S.fromList [(1, (q1, q2)) | q1 <- S.toList (states a1)
+                                                                   , q2 <- S.toList (states a2)]
+                              newAcc = S.fromList [(2, (q1, q2)) | q1 <- stateList a1
+                                                                 , q2 <- S.toList (accept a2)]
+                              a = makeNBA newLabelQs newTrans [] [] in
+                                (insertTrans (trans1 ++ trans2) (buchiUnion a a)){ start = newStart
+                                                                                 , accept = newAcc
+                                                                                 }
 
 
-instance  OmegaRegular TGNBA where
-  convToOmegaAutomaton (TGNBA (Automaton pg a)) = Automaton { graph = pg
-                                                            , accept = convTransToAccCond a
-                                                            }
+buchiComplement :: (Ord q) => NBA q a l -> NBA q a l
+buchiComplement a = undefined
 
 
-instance OmegaRegular TNRA where
-  convToOmegaAutomaton (TNRA (Automaton pg a)) = Automaton { graph = pg
-                                                           , accept = convTransToAccCond a
-                                                           }
-
-
-instance TransBasedAccCond TNBAccCond where
-  convTransToAccCond (TNBAccCond ts) = [[Inf ts]]
-
-
-instance TransBasedAccCond TGNBAccCond where
-  convTransToAccCond (TGNBAccCond ts) = [[Inf fs] | fs <- ts]
-
-
-instance TransBasedAccCond TNRAccCond where
-  convTransToAccCond (TNRAccCond  ts) = [[Inf infs, Fin fins] | (infs, fins) <- ts]
-
-
-instance StateBasedAccCond NBAccCond where
-  convStatesToAccCond (NBAccCond qs) pg = [[Inf (statesToOutTrans pg (toList qs))]]
-
-
-instance StateBasedAccCond GNBAccCond where
-  convStatesToAccCond (GNBAccCond qs) pg = [[Inf (statesToOutTrans pg fs) | fs <- qs]]
-
-
-instance StateBasedAccCond NRAccCond where
-  convStatesToAccCond (NRAccCond qs) pg = [[Inf (statesToOutTrans pg infs),
-                                            Fin (statesToOutTrans pg  fins)]
-                                           | (infs, fins) <- qs]
+makeNBA :: (Ord q) => [(q, l)] -> [(q, a, q)] -> [q] -> [q] -> NBA q a l
+makeNBA qs ts ss as = let lNodes = zip [1..] (snd <$> qs)
+                          assoc = zip (fst <$> qs) [1..] in
+                           insertTrans ts $ NBA{ states = S.fromList []
+                                               , graph = mkGraph lNodes []
+                                               , bimap = B.fromList assoc
+                                               , start = S.fromList ss
+                                               , accept = S.fromList as
+                                               }

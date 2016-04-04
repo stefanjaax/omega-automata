@@ -117,20 +117,20 @@ parseHoa = do
   return (hs, bs)
 
 
-toNBAAccCond :: [BodyItem] -> NBAccCond
-toNBAAccCond bs = NBAccCond $ S.fromList [i | BodyItem _ i _ (Just _) _ <- bs]
+toNBAAccCond :: [BodyItem] -> S.Set Int
+toNBAAccCond bs = S.fromList [i | BodyItem _ i _ (Just _) _ <- bs]
 
 
-hoaToEdges :: [BodyItem] -> [(A.State, A.State, Maybe LabelExpr)]
-hoaToEdges bs = [(q1, q2, l) | b <- bs
+hoaToEdges :: [BodyItem] -> [(A.State, Maybe LabelExpr, A.State)]
+hoaToEdges bs = [(q1, l, q2) | b <- bs
                              , e <- edges b
                              , let q1 = num b
                              , q2 <- stateConj e
                              , let l = edgeLabel e]
 
 
-hoaToAccEdges :: [BodyItem] -> [(A.State, A.State, Maybe LabelExpr)]
-hoaToAccEdges bs = [(q1, q2, l) | b <- bs
+hoaToAccEdges :: [BodyItem] -> [(A.State, Maybe LabelExpr, A.State)]
+hoaToAccEdges bs = [(q1, l, q2) | b <- bs
                                 , e <- edges b
                                 , accSig e /= Nothing
                                 , let q1 = num b
@@ -146,20 +146,12 @@ hoaToStartStates :: [HeaderItem] -> [A.State]
 hoaToStartStates hs = concat [qs | Start qs <- hs]
 
 
-hoaToNBA :: ([HeaderItem], [BodyItem]) -> A.NBA (Maybe LabelExpr) (Maybe LabelExpr)
+hoaToNBA :: ([HeaderItem], [BodyItem]) -> A.NBA A.State (Maybe LabelExpr) (Maybe LabelExpr)
 hoaToNBA (hs, bs) = let qs = hoaToStates bs
                         ts = hoaToEdges bs
                         ss = hoaToStartStates hs
                         as = [q | BodyItem _ q _ (Just _) _ <- bs] in
                           makeNBA qs ts ss as
-
-
-hoaToTNBA :: ([HeaderItem], [BodyItem]) -> A.TNBA (Maybe LabelExpr) (Maybe LabelExpr)
-hoaToTNBA (hs, bs) = let qs = hoaToStates bs
-                         ts = hoaToEdges bs
-                         ss = hoaToStartStates hs
-                         as = hoaToAccEdges bs in
-                          makeTNBA qs ts ss as
 
 
 parseBodyItem :: Int -> [AliasName] -> Parser BodyItem
