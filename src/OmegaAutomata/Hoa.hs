@@ -369,6 +369,10 @@ parseMBoolExpr p ops = buildExpressionParser ops term where
          p
 
 
+buchiToHoa :: (Show a, Show l) => NBA q a l -> String
+buchiToHoa a = undefined
+
+
 toHoa :: ([HeaderItem], [BodyItem]) -> String
 toHoa (hs, bs) = unlines $ ["Hoa: v1"] ++
                             (headerItemToHoa <$> hs) ++

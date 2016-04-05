@@ -4,6 +4,8 @@ import qualified Data.Set as S
 import Data.Graph.Inductive
 import qualified Data.Map as M
 import qualified Data.Bimap as B
+import Data.List (groupBy)
+import Data.Foldable (fold)
 
 type State = Int
 
@@ -22,20 +24,20 @@ toState :: (Ord q) => NBA q a l -> Node -> q
 toState a q = (bimap a) B.!> q
 
 
-succ :: (Ord q) => NBA q a l -> q -> [q]
-succ a q = (toState a . fst) <$> lsuc (graph a) (toNode a q)
+succs :: (Ord q) => NBA q a l -> q -> [(q, a)]
+succs a q = (\(q, l) -> (toState a q, l)) <$> lsuc (graph a) (toNode a q)
 
 
-pre :: (Ord q) => NBA q a l -> q -> [q]
-pre a q = (toState a . fst) <$> lpre (graph a) (toNode a q)
+pres :: (Ord q) => NBA q a l -> q -> [(q, a)]
+pres a q = (\(q, l) -> (toState a q, l)) <$> lpre (graph a) (toNode a q)
 
 
-aSucc :: (Ord q) => NBA q a l -> q -> a -> [q]
-aSucc a q b = [toState a q' | (q', b) <- lsuc (graph a) (toNode a q)]
+aSuccs :: (Ord q) => NBA q a l -> q -> a -> [q]
+aSuccs a q b = [toState a q' | (q', b) <- lsuc (graph a) (toNode a q)]
 
 
-aPre :: (Ord q) => NBA q a l -> q -> a -> [q]
-aPre a q b = [toState a q' | (q', b) <- lpre (graph a) (toNode a q)]
+aPres :: (Ord q) => NBA q a l -> q -> a -> [q]
+aPres a q b = [toState a q' | (q', b) <- lpre (graph a) (toNode a q)]
 
 
 trans :: (Ord q) => NBA q a l -> [(q, a, q)]
@@ -43,6 +45,20 @@ trans a = [(q1, l, q2) | (i1, i2, l) <- labEdges (graph a)
                        , let q1 = (bimap a) B.!> i1
                        , let q2 = (bimap a) B.!> i2]
 
+
+combine :: (Eq a, Ord q) => [(q, a)] -> [([q], a)]
+combine xs = let xs' = groupBy (\x y -> snd x == snd y) xs in
+  case xs' of
+    [] -> []
+    _ -> map (\ys -> (fst <$> ys, head (snd <$> ys))) xs'
+
+
+powerSucc :: (Eq a, Ord q) => NBA q a l -> [q] -> [([q], a)]
+powerSucc a qs = combine $ concat [succs a q | q <- qs]
+
+
+powerASucc :: (Ord a, Ord q) => NBA q a l -> [q] -> a -> [q]
+powerASucc a qs l = concat [aSuccs a q l | q <- qs]
 
 annotateStates :: (Ord q, Ord i) => i -> NBA q a l -> NBA (i, q) a l
 annotateStates i a = let annotate = S.map (\x -> (i, x)) in
