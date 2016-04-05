@@ -6,6 +6,7 @@ import Data.Graph.Inductive.Query.TransClos (trc)
 import qualified Data.Set as S
 import qualified  Data.Map as  M
 import qualified Data.Bimap as B
+import Data.List (nub)
 
 type PowerPair q = ([q], [q])
 
@@ -17,7 +18,7 @@ isLimitDeterministic a = let g = graph a
                               all detSucc ls
 
 
-pairTrans :: (Ord q, Ord a) => NBA q a l -> ([q], [q]) -> [(([q], [q]), a)]
+pairTrans :: (Ord q, Ord a) => NBA q a l -> PowerPair q -> [(PowerPair q, a)]
 pairTrans a (qs1, qs2) = let ts1 = powerSucc a qs1
                              acc1 = [f | f <- qs1, S.member f (accept a)]
                              qs2' l = if qs1 == qs2 then
@@ -25,7 +26,7 @@ pairTrans a (qs1, qs2) = let ts1 = powerSucc a qs1
                                       else
                                         powerASucc a (qs2 ++ [f | f <- acc1, not (f `elem` qs2)]) l
                              in
-                              [((qs1', qs2' l), l) | (qs1', l) <- ts1]
+                              [((qs1', nub (qs2' l)), l) | (qs1', l) <- ts1]
 
 
 pairTransClosure :: (Ord q, Ord a) => NBA q a l -> [PowerPair q] -> [(PowerPair q, a, PowerPair q)]
@@ -37,13 +38,14 @@ genPowerSet ::  (Ord q, Ord a) =>
                 NBA q a l ->
                 M.Map (PowerPair q) [(PowerPair q, a)] ->
                 [PowerPair q] -> M.Map (PowerPair q) [(PowerPair q, a)]
-genPowerSet a m ps =  let toBeInserted p = pairTrans a p
-                          toBeAppended m' p = [p' | (p', a) <- toBeInserted p
-                                                  , not (M.member p' m')]
-                          newMap m' p = (M.insert p (toBeInserted p) m')
-                          f m' p = genPowerSet a (newMap m' p) (toBeAppended m' p)
-                          in
-                            foldl f m ps
+genPowerSet a m (p:ps) = let psl' = (pairTrans a p)
+                             ps' = [p' | (p', l) <- psl', not (M.member p' m)] in
+                              if M.member p m then
+                                genPowerSet a m ps
+                              else
+                                genPowerSet a (M.insert p psl' m) (ps' ++ ps)
+genPowerSet a m [] = m
+
 
 liftStateToPair :: (Ord q, Ord a) => NBA q a l -> NBA (PowerPair q) a ([l], [l])
 liftStateToPair a = let liftToPair q = ([q], []) in
@@ -58,6 +60,7 @@ liftStateToPair a = let liftToPair q = ([q], []) in
 labels :: (Ord q) => [q] -> NBA q a l -> [l]
 labels qs a = [label q a | q <- qs]
 
+
 toLDBA :: (Ord q, Ord a) =>  NBA q a l -> NBA (Int, PowerPair q) a ([l], [l])
 toLDBA a = let ts = pairTransClosure a [([f],[f]) | f <- S.toList (accept a)]
                ps = concat [[p1, p2] | (p1, a, p2) <- ts]
@@ -66,6 +69,6 @@ toLDBA a = let ts = pairTransClosure a [([f],[f]) | f <- S.toList (accept a)]
                part2 = makeNBA (zip ps ls) ts [] as
                trans12 = [((1, (qs, [])), l, (2, ([f], [f]))) | f <- S.toList (accept a)
                                                    , (qs, l) <- combine (pres a f)]
-               part1 = liftStateToPair a
+               part1 = (liftStateToPair a){accept = S.fromList []}
                in
                 insertTrans trans12 $ buchiUnion part1 part2

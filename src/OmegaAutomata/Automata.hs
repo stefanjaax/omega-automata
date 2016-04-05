@@ -4,8 +4,7 @@ import qualified Data.Set as S
 import Data.Graph.Inductive
 import qualified Data.Map as M
 import qualified Data.Bimap as B
-import Data.List (groupBy)
-import Data.Foldable (fold)
+import Data.List (groupBy, nub)
 
 type State = Int
 
@@ -14,7 +13,7 @@ data NBA q a l = NBA{ states :: S.Set q
                     , graph :: Gr l a
                     , start :: S.Set q
                     , accept :: S.Set q
-                    }
+                    } deriving (Show)
 
 toNode :: (Ord q) => NBA q a l -> q -> Node
 toNode a q = (bimap a) B.! q
@@ -54,7 +53,7 @@ combine xs = let xs' = groupBy (\x y -> snd x == snd y) xs in
 
 
 powerSucc :: (Eq a, Ord q) => NBA q a l -> [q] -> [([q], a)]
-powerSucc a qs = combine $ concat [succs a q | q <- qs]
+powerSucc a qs = map (\(xs, l) -> (nub xs, l)) $ combine $ concat [succs a q | q <- qs]
 
 
 powerASucc :: (Ord a, Ord q) => NBA q a l -> [q] -> a -> [q]
@@ -83,6 +82,14 @@ insertStates qls a = let qs = fst <$> qls
                              }
 
 
+alphabet :: (Eq a) => NBA q a l -> [a]
+alphabet a =  nub $ edgeLabel <$> labEdges (graph a)
+
+
+graphNodes :: NBA q a l -> [Node]
+graphNodes a = nodes (graph a)
+
+
 label :: (Ord q) => q -> NBA q a l -> l
 label q a = let l = lab (graph a) (bimap a B.! q) in
   case l of
@@ -108,7 +115,7 @@ buchiUnion a1 a2 = let (a1', a2') = (annotateStates 1 a1, annotateStates 2 a2)
 
 buchiIntersection :: (Ord q) => NBA q a l -> NBA q a l -> NBA (Int, (q, q)) a (l, l)
 buchiIntersection a1 a2 = let stateList = S.toList . states
-                              newStates = zip (stateList a1) (stateList a2)
+                              newStates = [(q1, q2) | q1 <- (stateList a1), q2 <- (stateList a2)]
                               newTrans = [((q1, q2), l, (q1', q2')) | (q1, l, q1') <- trans a1
                                                                     , (q2, l, q2') <- trans a2
                                                                     , not (S.member q1 (accept a1))
@@ -122,8 +129,8 @@ buchiIntersection a1 a2 = let stateList = S.toList . states
                               newLabelQs = [((q1, q2), (l1, l2)) | (q1, q2) <- newStates
                                                                  , let l1 = label q1 a1
                                                                  , let l2 = label q2 a2]
-                              newStart = S.fromList [(1, (q1, q2)) | q1 <- S.toList (states a1)
-                                                                   , q2 <- S.toList (states a2)]
+                              newStart = S.fromList [(1, (q1, q2)) | q1 <- S.toList (start a1)
+                                                                   , q2 <- S.toList (start a2)]
                               newAcc = S.fromList [(2, (q1, q2)) | q1 <- stateList a1
                                                                  , q2 <- S.toList (accept a2)]
                               a = makeNBA newLabelQs newTrans [] [] in
@@ -139,7 +146,7 @@ buchiComplement a = undefined
 makeNBA :: (Ord q) => [(q, l)] -> [(q, a, q)] -> [q] -> [q] -> NBA q a l
 makeNBA qs ts ss as = let lNodes = zip [1..] (snd <$> qs)
                           assoc = zip (fst <$> qs) [1..] in
-                           insertTrans ts $ NBA{ states = S.fromList []
+                           insertTrans ts $ NBA{ states = S.fromList [q | (q, l) <- qs]
                                                , graph = mkGraph lNodes []
                                                , bimap = B.fromList assoc
                                                , start = S.fromList ss

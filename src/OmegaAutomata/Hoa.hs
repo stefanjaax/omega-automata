@@ -13,6 +13,7 @@ import Control.Applicative
 import Control.Monad (guard)
 import Control.Monad.State as SM
 import Data.List (intersperse)
+import Data.Maybe (catMaybes)
 import qualified Data.Set as S
 
 type AliasName = ByteString
@@ -35,7 +36,7 @@ data LabelExpr = LBoolExpr Bool
                | LNot LabelExpr
                | LAnd LabelExpr LabelExpr
                | LOr LabelExpr LabelExpr
-               deriving (Show, Eq)
+               deriving (Show, Eq, Ord)
 
 data HoaAccCond = FinCond Int
                 | InfCond Int
@@ -369,8 +370,25 @@ parseMBoolExpr p ops = buildExpressionParser ops term where
          p
 
 
-buchiToHoa :: (Show a, Show l) => NBA q a l -> String
-buchiToHoa a = undefined
+nbaToHoa :: (Show l, Ord q) => NBA q (Maybe LabelExpr) l -> ([HeaderItem], [BodyItem])
+nbaToHoa a = let sigma = alphabet a
+                 hs = [ AP $ (pack . labelExprToHoa) <$> catMaybes sigma
+                      , Acceptance (1, InfCond 0)
+                      , Start $ graphNodes a
+                      , Tool ["ldba-tool"]
+                      , AcceptanceName Buchi
+                      ]
+                 bs = [BodyItem{ stateLabel = Nothing
+                               , num = toNode a q
+                               , descr = Nothing
+                               , stateAccSig = (if isAcc then Just [0] else Nothing)
+                               , edges = [EdgeItem{ edgeLabel = s
+                                                  , stateConj = [toNode a q' | q' <- aSuccs a q s]
+                                                  , accSig = Nothing
+                                                  } | s <- sigma]
+                               }
+                        | q <- S.toList (states a), let isAcc = S.member q (accept a)]
+                 in (hs, bs)
 
 
 toHoa :: ([HeaderItem], [BodyItem]) -> String
