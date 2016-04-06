@@ -1,7 +1,19 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Definition of parser for the Hanoi omega automata format
-module OmegaAutomata.Hoa where
+-- | Parser for the Hanoi omega automata format (https://github.com/adl/hoaf)
+module OmegaAutomata.Hoa ( AliasName(..)
+                         , LabelExpr(..)
+                         , HoaAccCond(..)
+                         , MinMax(..)
+                         , EvenOdd(..)
+                         , AccName(..)
+                         , HeaderItem(..)
+                         , EdgeItem(..)
+                         , BodyItem(..)
+                         , parseHoa
+                         , toHoa
+                         , nbaToHoa
+                         , hoaToNBA) where
 import OmegaAutomata.Automata as A
 import Prelude hiding (takeWhile)
 import Data.ByteString (ByteString)
@@ -17,18 +29,6 @@ import Data.Maybe (catMaybes)
 import qualified Data.Set as S
 
 type AliasName = ByteString
-
-
-class MBoolExpr a where
-  _true :: a
-  _false :: a
-  _and :: a -> a -> a
-  _or :: a -> a -> a
-
-
-class (MBoolExpr a) => BoolExpr a where
-  _not :: a -> a
-
 
 data LabelExpr = LBoolExpr Bool
                | RefAP Int
@@ -90,6 +90,14 @@ data BodyItem = BodyItem
                 }
                 deriving Show
 
+class MBoolExpr a where
+  _true :: a
+  _false :: a
+  _and :: a -> a -> a
+  _or :: a -> a -> a
+
+class (MBoolExpr a) => BoolExpr a where
+  _not :: a -> a
 
 instance MBoolExpr LabelExpr where
    _true = LBoolExpr True

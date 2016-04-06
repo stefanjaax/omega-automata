@@ -1,5 +1,5 @@
 -- | Manipulation of Limit-deterministic Buchi automata
-module OmegaAutomata.LDBA(isLimitDeterministic, toLDBA) where
+module OmegaAutomata.LDBA(PowerPair, isLimitDeterministic, toLDBA) where
 import OmegaAutomata.Automata
 import Data.Graph.Inductive
 import Data.Graph.Inductive.Query.TransClos (trc)
