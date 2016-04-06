@@ -25,7 +25,6 @@ toNode a q = (bimap a) B.! q
 -- | Returns state corresponding to node in internal graph
 toState :: (Ord q) => NBA q a l -> Node -> q
 toState a q = (bimap a) B.!> q
-   -- ^ The intersection-NBA
 
 
 -- | Returns successors of state with corresponding edge-labels
