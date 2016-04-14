@@ -2,23 +2,31 @@
 module OmegaAutomata.LDBA(PowerPair, isLimitDeterministic, toLDBA) where
 import OmegaAutomata.Automata
 import Data.Graph.Inductive
-import Data.Graph.Inductive.Query.TransClos (trc)
 import qualified Data.Set as S
 import qualified  Data.Map as  M
 import qualified Data.Bimap as B
 import Data.List (nub)
-
 type PowerPair q = ([q], [q])
 
 
 -- | Check whether NBA is limit-deterministic
-isLimitDeterministic :: (Ord q) => NBA q a l  -- ^ The NBA to be checked
-                                   -> Bool    -- ^ Bool-value indicating whether automaton is limit-det.
-isLimitDeterministic a = let g = graph a
-                             fs = accept a
-                             ls = [q2 | (q1, q2, _) <- (labEdges . trc) g, S.member (toState a q1) fs]
-                             detSucc q = outdeg g q <= noNodes g  in
-                              all detSucc ls
+isLimitDeterministic :: (Ord q, Ord a) => NBA q a l  -- ^ The NBA to be checked
+                                       -> Bool -- ^ Indicates whether automaton is limit-det.
+isLimitDeterministic a = S.isSubsetOf (accept a) (deterministicPart a)
+
+
+deterministicPart :: (Ord q, Ord a) => NBA q a l
+                                    -> S.Set q
+deterministicPart a = let g = graph a
+                          transGraph = trc  g
+                          succDeterministic i = hasNoDuplicates $ map snd (lsuc g i)
+                          det = [i | i <- nodes g, all succDeterministic (suc transGraph i)]
+                          in
+                            S.fromList $ map (toState a) det
+
+
+hasNoDuplicates :: (Ord a) => [a] -> Bool
+hasNoDuplicates xs = S.size (S.fromList xs) == length xs
 
 
 -- | Convert NBA into equivalent LDBA using Courcoubetis and Yannakakis' construction
@@ -26,7 +34,7 @@ isLimitDeterministic a = let g = graph a
 toLDBA :: (Ord q, Ord a) =>  NBA q a l           -- ^ The NBA to be converted
           -> NBA (Int, PowerPair q) a ([l], [l]) -- ^ The equivalent LDBA
 toLDBA a = let ts = pairTransClosure a [([f],[f]) | f <- S.toList (accept a)]
-               ps = concat [[p1, p2] | (p1, a, p2) <- ts]
+               ps = concat [[p1, p2] | (p1, _, p2) <- ts]
                ls = [(labels q1 a, labels q2 a) | (q1, q2) <- ps]
                as = [(qs1, qs2) | (qs1, qs2) <- ps, qs1 == qs2]
                part1 = (liftStateToPair a){accept = S.fromList []}
@@ -37,20 +45,24 @@ toLDBA a = let ts = pairTransClosure a [([f],[f]) | f <- S.toList (accept a)]
                 insertTrans trans12 $ buchiUnion part1 part2
 
 
--- | Make transition for pair of sets of states, as described in the article by Courcoubetis and Yannakakis
+-- | Make transition for pair of sets of states,
+--   as described in the article by Courcoubetis and Yannakakis
 pairTrans :: (Ord q, Ord a) => NBA q a l -> PowerPair q -> [(PowerPair q, a)]
-pairTrans a (qs1, qs2) = let ts1 = powerSucc a qs1
-                             acc1 = [f | f <- qs1, S.member f (accept a)]
-                             qs2' l = if qs1 == qs2 then
-                                        powerASucc a acc1 l
-                                      else
-                                        powerASucc a (qs2 ++ [f | f <- acc1, not (f `elem` qs2)]) l
-                             in
-                              [((qs1', nub (qs2' l)), l) | (qs1', l) <- ts1]
+pairTrans a (qs1, qs2) = let
+  ts1 = powerSucc a qs1
+  acc1 = [f | f <- qs1, S.member f (accept a)]
+  qs2' l = if qs1 == qs2 then
+             powerASucc a acc1 l
+           else
+             powerASucc a (qs2 ++ [f | f <- acc1, not (f `elem` qs2)]) l
+  in
+   [((qs1', nub (qs2' l)), l) | (qs1', l) <- ts1]
 
 
 -- | Compute all transitions reachable from list of pairs of states
-pairTransClosure :: (Ord q, Ord a) => NBA q a l -> [PowerPair q] -> [(PowerPair q, a, PowerPair q)]
+pairTransClosure :: (Ord q, Ord a) => NBA q a l
+                                   -> [PowerPair q]
+                                   -> [(PowerPair q, a, PowerPair q)]
 pairTransClosure a ps = [(ps1, l, ps2) | (ps1, vs) <- M.assocs (genPowerSet a (M.fromList []) ps)
                                        , (ps2, l) <- vs]
 
@@ -62,15 +74,16 @@ genPowerSet ::  (Ord q, Ord a) =>
                 M.Map (PowerPair q) [(PowerPair q, a)] ->
                 [PowerPair q] -> M.Map (PowerPair q) [(PowerPair q, a)]
 genPowerSet a m (p:ps) = let psl' = (pairTrans a p)
-                             ps' = [p' | (p', l) <- psl', not (M.member p' m)] in
+                             ps' = [p' | (p', _) <- psl', not (M.member p' m)] in
                               if M.member p m then
                                 genPowerSet a m ps
                               else
                                 genPowerSet a (M.insert p psl' m) (ps' ++ ps)
-genPowerSet a m [] = m
+genPowerSet _ m [] = m
 
 
--- | Lift states q and labels in an NBA to pair of states ([q], []) and pair of labels ([l], [])
+-- | Lift states q and labels in an NBA
+--   to pair of states ([q], []) and pair of labels ([l], [])
 liftStateToPair :: (Ord q, Ord a) => NBA q a l -> NBA (PowerPair q) a ([l], [l])
 liftStateToPair a = let liftToPair q = ([q], []) in
   a{ states = S.map liftToPair (states a)
