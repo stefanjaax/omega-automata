@@ -20,6 +20,23 @@ data NBA q a l = NBA{ states :: S.Set q       -- ^ The states of the NBA
                     , accept :: S.Set q       -- ^ The set of accepting states in the NBA
                     } deriving (Show)
 
+-- | State-data type used in the complement-construction
+data (Ord q) => CompState q = PowerState [q] | RankState (Ranking q, [q]) deriving Show
+
+instance (Ord q) => Eq (CompState q) where
+  (==) (PowerState qs1) (PowerState qs2) = qs1 == qs2
+  (==) (RankState (r1, qs1)) (RankState (r2, qs2)) = r1 == r2 && qs1 == qs2
+  (==) _ _ = False
+
+instance (Ord q) => Ord (CompState q) where
+  compare (PowerState qs1) (PowerState qs2) = compare qs1 qs2
+  compare (RankState (r1, qs1)) (RankState (r2, qs2)) =
+    case compare r1 r2 of
+      EQ -> compare qs1 qs2
+      a -> a
+  compare (PowerState _) (RankState _) = LT
+  compare (RankState _) (PowerState _) = GT
+
 
 -- | Returns node in internal graph corresponding to state
 toNode :: (Ord q) => NBA q a l -> q -> Node
@@ -190,107 +207,6 @@ buchiIntersection a1 a2 = let
                                                      }
 
 
-isEven :: Rank -> Bool
-isEven (Rank i) = even i
-isEven _ = False
-
-
-evenPart :: (Ord q) => Ranking q -> [q]
-evenPart ranking = [q | (q, r) <- M.assocs ranking, not (isEven r)]
-
-
-oddPart :: (Ord q) => Ranking q -> [q]
-oddPart ranking = [q | (q, r) <- M.assocs ranking, not (isEven r)]
-
-
-countOddUnderlings :: (Ord q) => q -> Ranking q -> Int
-countOddUnderlings q ranking = case ranking M.! q of
-  Bot      -> 0
-  (Rank i) ->  length [q' | (q', Rank i') <- M.assocs ranking,
-                           not (even i'), i' < i]
-
-
-roundEven :: Int -> Int
-roundEven i = if even i then i else i - 1
-
-
-predRanks :: (Ord q, Eq a) => q -> a -> Ranking q -> NBA q a l -> [Int]
-predRanks q label ranking automaton = let qs = aPres automaton q label in
-  [i | (Rank i) <- [ranking M.! q | q <- qs, (ranking M.! q) /= Bot]]
-
-
-tighten :: (Ord q) => Ranking q -> NBA q a l -> Ranking q
-tighten ranking a = M.mapWithKey newRank ranking where
-  newRank q Bot = Bot
-  newRank q (Rank r) = if S.member q (accept a) then
-                        Rank $ 2 * (countOddUnderlings q ranking)
-                       else
-                        Rank $ 2 * (countOddUnderlings q ranking) + 1
-
-
-aSuccRanking :: (Ord q, Eq a) => NBA q a l -> Ranking q -> a -> Ranking q
-aSuccRanking automaton ranking l = tighten ranking' automaton where
-  newRank q i = let ps = predRanks q l ranking automaton in
-    if ps == [] then
-      Bot
-    else
-      if S.member q  (accept automaton) then
-        Rank $ roundEven (minimum ps)
-      else
-        Rank $ (minimum ps)
-  ranking' = M.mapWithKey newRank ranking
-
-
-generateLevelRankings :: (Ord q) => NBA q a l -> S.Set q -> [Ranking q]
-generateLevelRankings a xs = let
-  m = 2*(S.size (states a) - S.size (accept a))
-  ranks q = if S.member q xs then
-              if S.member q (accept a) then
-                [Rank i | i <- [0..m], even i]
-              else
-                [Rank i | i <- [0..m]]
-            else
-              [Bot]
-  rs []  = []
-  rs [q] = [[(q, r)] | r <-ranks q]
-  rs (q:qs) = [(q, r):rs' | r <- (ranks q), rs' <- rs qs]
-  in
-    map M.fromList $ rs $ S.toList (states a)
-
-
-data (Ord q) => CompState q = PowerState [q] | RankState (Ranking q, [q]) deriving Show
-
-instance (Ord q) => Eq (CompState q) where
-  (==) (PowerState qs1) (PowerState qs2) = qs1 == qs2
-  (==) (RankState (r1, qs1)) (RankState (r2, qs2)) = r1 == r2 && qs1 == qs2
-  (==) _ _ = False
-
-
-instance (Ord q) => Ord (CompState q) where
-  compare (PowerState qs1) (PowerState qs2) = compare qs1 qs2
-  compare (RankState (r1, qs1)) (RankState (r2, qs2)) =
-    case compare r1 r2 of
-      EQ -> compare qs1 qs2
-      a -> a
-  compare (PowerState _) (RankState _) = LT
-  compare (RankState _) (PowerState _) = GT
-
-transClosure :: (Ord q) => [q] -> (q -> [(a, q)]) -> (S.Set q, [(q, a, q)])
-transClosure qs f = fst $ closure ((S.fromList [], []), qs) f where
-
-
-closure :: (Ord q) => ((S.Set q, [(q, a, q)]), [q])
-                   -> (q -> [(a, q)])
-                   -> ((S.Set q, [(q, a, q)]), [q])
-closure ((ss, ts), qs') f = case qs' of
-  (_:_) -> let newTrans = [(q1, a, q2) | q1 <- qs', (a, q2) <- f q1]
-               newQs = [q | (_, _, q) <- newTrans, not (S.member q ss)]
-               newSS = S.union (S.fromList qs') ss
-               in
-                closure ((newSS, ts ++ newTrans), newQs) f
-  []    -> ((ss, ts), qs')
-
-
 -- | Returns Complement-automaton of a Buchi automaton.
 -- Resulting automaton is always limit-deterministic.
 buchiComplement :: (Ord q, Ord a) => NBA q a l       -- ^ The NBA to be complemented
@@ -332,3 +248,94 @@ makeNBA qs ts ss as = let lNodes = zip [1..] (snd <$> qs)
                                                , start = S.fromList ss
                                                , accept = S.fromList as
                                                }
+
+
+isEven :: Rank -> Bool
+isEven (Rank i) = even i
+isEven _ = False
+
+
+evenPart :: (Ord q) => Ranking q -> [q]
+evenPart ranking = [q | (q, r) <- M.assocs ranking, not (isEven r)]
+
+
+oddPart :: (Ord q) => Ranking q -> [q]
+oddPart ranking = [q | (q, r) <- M.assocs ranking, not (isEven r)]
+
+
+-- Count number of states of lower odd rank.
+countOddUnderlings :: (Ord q) => q          -- ^ Input state
+                              -> Ranking q  -- ^ Input ranking
+                              -> Int        -- ^ Number of states with lower odd ranking
+countOddUnderlings q ranking = case ranking M.! q of
+  Bot      -> 0
+  (Rank i) ->  length [q' | (q', Rank i') <- M.assocs ranking,
+                           not (even i'), i' < i]
+
+
+roundEven :: Int -> Int
+roundEven i = if even i then i else i - 1
+
+
+predRanks :: (Ord q, Eq a) => q -> a -> Ranking q -> NBA q a l -> [Int]
+predRanks q label ranking automaton = let qs = aPres automaton q label in
+  [i | (Rank i) <- [ranking M.! q | q <- qs, (ranking M.! q) /= Bot]]
+
+
+tighten :: (Ord q) => Ranking q -> NBA q a l -> Ranking q
+tighten ranking a = M.mapWithKey newRank ranking where
+  newRank q Bot = Bot
+  newRank q (Rank r) = if S.member q (accept a) then
+                        Rank $ 2 * (countOddUnderlings q ranking)
+                       else
+                        Rank $ 2 * (countOddUnderlings q ranking) + 1
+
+
+aSuccRanking :: (Ord q, Eq a) => NBA q a l -> Ranking q -> a -> Ranking q
+aSuccRanking automaton ranking l = tighten ranking' automaton where
+  newRank q i = let ps = predRanks q l ranking automaton in
+    if ps == [] then
+      Bot
+    else
+      if S.member q  (accept automaton) then
+        Rank $ roundEven (minimum ps)
+      else
+        Rank $ (minimum ps)
+  ranking' = M.mapWithKey newRank ranking
+
+
+generateLevelRankings :: (Ord q) => NBA q a l    -- ^ input NBA
+                                 -> S.Set q      -- ^ set of states that are not mapped to Bottom
+                                 -> [Ranking q]  -- ^ List of possible level rankings
+generateLevelRankings a xs = let
+  m = 2*(S.size (states a) - S.size (accept a))
+  ranks q = if S.member q xs then
+              if S.member q (accept a) then
+                [Rank i | i <- [0..m], even i]
+              else
+                [Rank i | i <- [0..m]]
+            else
+              [Bot]
+  rs []  = []
+  rs [q] = [[(q, r)] | r <-ranks q]
+  rs (q:qs) = [(q, r):rs' | r <- (ranks q), rs' <- rs qs]
+  in
+    map M.fromList $ rs $ S.toList (states a)
+
+-- | Compute transitive closure starting from a list of states
+transClosure :: (Ord q) => [q]                    -- ^ list of initial states
+                        -> (q -> [(a, q)])        -- ^ custom transition function
+                        -> (S.Set q, [(q, a, q)]) -- the states in the closure and the transitions
+transClosure qs f = fst $ closure ((S.fromList [], []), qs) f where
+
+
+closure :: (Ord q) => ((S.Set q, [(q, a, q)]), [q])
+                   -> (q -> [(a, q)])
+                   -> ((S.Set q, [(q, a, q)]), [q])
+closure ((ss, ts), qs') f = case qs' of
+  (_:_) -> let newTrans = [(q1, a, q2) | q1 <- qs', (a, q2) <- f q1]
+               newQs = [q | (_, _, q) <- newTrans, not (S.member q ss)]
+               newSS = S.union (S.fromList qs') ss
+               in
+                closure ((newSS, ts ++ newTrans), newQs) f
+  []    -> ((ss, ts), qs')
