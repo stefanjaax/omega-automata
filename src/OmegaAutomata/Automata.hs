@@ -8,6 +8,10 @@ import Data.List (groupBy, nub)
 
 type State = Int
 
+data Rank = Rank Int | Bot deriving (Eq, Ord, Show)
+
+type Ranking q = M.Map q Rank
+
 -- | Data-type for non-deterministic Buchi automata
 data NBA q a l = NBA{ states :: S.Set q       -- ^ The states of the NBA
                     , bimap :: B.Bimap q Node -- ^ Bijection between states and nodes in the graph
@@ -31,7 +35,7 @@ toState a q = (bimap a) B.!> q
 succs :: (Ord q) => NBA q a l   -- ^ The NBA the state belongs to
                  -> q           -- ^ The state
                  -> [(q, a)]    -- ^ Successor states and corresponding edge-label.
-succs a q = (\(q, l) -> (toState a q, l)) <$> lsuc (graph a) (toNode a q)
+succs a q = (\(q', l) -> (toState a q', l)) <$> lsuc (graph a) (toNode a q)
 
 
 -- | Returns predecessors of state with corresponding edge-labels
@@ -42,19 +46,19 @@ pres a q = (\(q, l) -> (toState a q, l)) <$> lpre (graph a) (toNode a q)
 
 
 -- | Returns list of successor-states for a given state and edge-label
-aSuccs :: (Ord q) => NBA q a l   -- ^ The NBA the state belongs to
-                  -> q           -- ^ The state
-                  -> a           -- ^ The edge-label
-                  -> [q]         -- ^ List of successors for state and edge-label.
-aSuccs a q b = [toState a q' | (q', b) <- lsuc (graph a) (toNode a q)]
+aSuccs :: (Ord q, Eq a) => NBA q a l   -- ^ The NBA the state belongs to
+                        -> q           -- ^ The state
+                        -> a           -- ^ The edge-label
+                        -> [q]         -- ^ List of successors for state and edge-label.
+aSuccs a q b = [toState a q' | (q', b') <- lsuc (graph a) (toNode a q), b' == b]
 
 
 -- | Returns list of predecessor-states for a given state and edge-label
-aPres :: (Ord q) => NBA q a l   -- ^ The NBA the state belongs to
-                 -> q           -- ^ The state
-                 -> a           -- ^ The edge-label
-                 -> [q]         -- ^ List of predecessors for state and edge-label.
-aPres a q b = [toState a q' | (q', b) <- lpre (graph a) (toNode a q)]
+aPres :: (Ord q, Eq a) => NBA q a l   -- ^ The NBA the state belongs to
+                       -> q           -- ^ The state
+                       -> a           -- ^ The edge-label
+                       -> [q]         -- ^ List of predecessors for state and edge-label.
+aPres a q b = [toState a q' | (q', b') <- lpre (graph a) (toNode a q), b' == b]
 
 
 -- | Returns all labelled transitions defined in a given NBA
@@ -160,35 +164,158 @@ buchiUnion a1 a2 = let (a1', a2') = (annotateStates 1 a1, annotateStates 2 a2)
 buchiIntersection :: (Ord q) => NBA q a l                    -- ^ The first NBA
                              -> NBA q a l                    -- ^ The second NBA
                              -> NBA (Int, (q, q)) a (l, l)   -- ^ The intersection-NBA
-buchiIntersection a1 a2 = let stateList = S.toList . states
-                              newStates = [(q1, q2) | q1 <- (stateList a1), q2 <- (stateList a2)]
-                              newTrans = [((q1, q2), l, (q1', q2')) | (q1, l, q1') <- trans a1
-                                                                    , (q2, l, q2') <- trans a2
-                                                                    , not (S.member q1 (accept a1))
-                                                                    , not (S.member q2 (accept a2))]
-                              trans1 = [((1, (q1, q2)), l, (2, (q1', q2'))) | (q1, l, q1') <- trans a1
-                                                                            , (S.member q1 (accept a1))
-                                                                            , (q2, l, q2') <- trans a2]
-                              trans2 = [((2, (q1, q2)), l, (1, (q1', q2'))) | (q2, l, q2') <- trans a2
-                                                                            , (S.member q2 (accept a2))
-                                                                            , (q1, l, q1') <- trans a1]
-                              newLabelQs = [((q1, q2), (l1, l2)) | (q1, q2) <- newStates
-                                                                 , let l1 = label q1 a1
-                                                                 , let l2 = label q2 a2]
-                              newStart = S.fromList [(1, (q1, q2)) | q1 <- S.toList (start a1)
-                                                                   , q2 <- S.toList (start a2)]
-                              newAcc = S.fromList [(2, (q1, q2)) | q1 <- stateList a1
-                                                                 , q2 <- S.toList (accept a2)]
-                              a = makeNBA newLabelQs newTrans [] [] in
-                                (insertTrans (trans1 ++ trans2) (buchiUnion a a)){ start = newStart
-                                                                                 , accept = newAcc
-                                                                                 }
+buchiIntersection a1 a2 = let
+  stateList = S.toList . states
+  newStates = [(q1, q2) | q1 <- (stateList a1), q2 <- (stateList a2)]
+  newTrans = [((q1, q2), l, (q1', q2')) | (q1, l, q1') <- trans a1
+                                        , (q2, l, q2') <- trans a2
+                                        , not (S.member q1 (accept a1))
+                                        , not (S.member q2 (accept a2))]
+  trans1 = [((1, (q1, q2)), l, (2, (q1', q2'))) | (q1, l, q1') <- trans a1
+                                                , (S.member q1 (accept a1))
+                                                , (q2, l, q2') <- trans a2]
+  trans2 = [((2, (q1, q2)), l, (1, (q1', q2'))) | (q2, l, q2') <- trans a2
+                                                , (S.member q2 (accept a2))
+                                                , (q1, l, q1') <- trans a1]
+  newLabelQs = [((q1, q2), (l1, l2)) | (q1, q2) <- newStates
+                                     , let l1 = label q1 a1
+                                     , let l2 = label q2 a2]
+  newStart = S.fromList [(1, (q1, q2)) | q1 <- S.toList (start a1)
+                                       , q2 <- S.toList (start a2)]
+  newAcc = S.fromList [(2, (q1, q2)) | q1 <- stateList a1
+                                     , q2 <- S.toList (accept a2)]
+  a = makeNBA newLabelQs newTrans [] [] in
+    (insertTrans (trans1 ++ trans2) (buchiUnion a a)){ start = newStart
+                                                     , accept = newAcc
+                                                     }
+
+
+isEven :: Rank -> Bool
+isEven (Rank i) = even i
+isEven _ = False
+
+
+evenPart :: (Ord q) => Ranking q -> [q]
+evenPart ranking = [q | (q, r) <- M.assocs ranking, not (isEven r)]
+
+
+oddPart :: (Ord q) => Ranking q -> [q]
+oddPart ranking = [q | (q, r) <- M.assocs ranking, not (isEven r)]
+
+
+countOddUnderlings :: (Ord q) => q -> Ranking q -> Int
+countOddUnderlings q ranking = case ranking M.! q of
+  Bot      -> 0
+  (Rank i) ->  length [q' | (q', Rank i') <- M.assocs ranking,
+                           not (even i'), i' < i]
+
+
+roundEven :: Int -> Int
+roundEven i = if even i then i else i - 1
+
+
+predRanks :: (Ord q, Eq a) => q -> a -> Ranking q -> NBA q a l -> [Int]
+predRanks q label ranking automaton = let qs = aPres automaton q label in
+  [i | (Rank i) <- [ranking M.! q | q <- qs, (ranking M.! q) /= Bot]]
+
+
+tighten :: (Ord q) => Ranking q -> NBA q a l -> Ranking q
+tighten ranking a = M.mapWithKey newRank ranking where
+  newRank q Bot = Bot
+  newRank q (Rank r) = if S.member q (accept a) then
+                        Rank $ 2 * (countOddUnderlings q ranking)
+                       else
+                        Rank $ 2 * (countOddUnderlings q ranking) + 1
+
+
+aSuccRanking :: (Ord q, Eq a) => NBA q a l -> Ranking q -> a -> Ranking q
+aSuccRanking automaton ranking l = tighten ranking' automaton where
+  newRank q i = let ps = predRanks q l ranking automaton in
+    if ps == [] then
+      Bot
+    else
+      if S.member q  (accept automaton) then
+        Rank $ roundEven (minimum ps)
+      else
+        Rank $ (minimum ps)
+  ranking' = M.mapWithKey newRank ranking
+
+
+generateLevelRankings :: (Ord q) => NBA q a l -> S.Set q -> [Ranking q]
+generateLevelRankings a xs = let
+  m = 2*(S.size (states a) - S.size (accept a))
+  ranks q = if S.member q xs then
+              if S.member q (accept a) then
+                [Rank i | i <- [0..m], even i]
+              else
+                [Rank i | i <- [0..m]]
+            else
+              [Bot]
+  rs []  = []
+  rs [q] = [[(q, r)] | r <-ranks q]
+  rs (q:qs) = [(q, r):rs' | r <- (ranks q), rs' <- rs qs]
+  in
+    map M.fromList $ rs $ S.toList (states a)
+
+
+data (Ord q) => CompState q = PowerState [q] | RankState (Ranking q, [q]) deriving Show
+
+instance (Ord q) => Eq (CompState q) where
+  (==) (PowerState qs1) (PowerState qs2) = qs1 == qs2
+  (==) (RankState (r1, qs1)) (RankState (r2, qs2)) = r1 == r2 && qs1 == qs2
+  (==) _ _ = False
+
+
+instance (Ord q) => Ord (CompState q) where
+  compare (PowerState qs1) (PowerState qs2) = compare qs1 qs2
+  compare (RankState (r1, qs1)) (RankState (r2, qs2)) =
+    case compare r1 r2 of
+      EQ -> compare qs1 qs2
+      a -> a
+  compare (PowerState _) (RankState _) = LT
+  compare (RankState _) (PowerState _) = GT
+
+transClosure :: (Ord q) => [q] -> (q -> [(a, q)]) -> (S.Set q, [(q, a, q)])
+transClosure qs f = fst $ closure ((S.fromList [], []), qs) f where
+
+
+closure :: (Ord q) => ((S.Set q, [(q, a, q)]), [q])
+                   -> (q -> [(a, q)])
+                   -> ((S.Set q, [(q, a, q)]), [q])
+closure ((ss, ts), qs') f = case qs' of
+  (_:_) -> let newTrans = [(q1, a, q2) | q1 <- qs', (a, q2) <- f q1]
+               newQs = [q | (_, _, q) <- newTrans, not (S.member q ss)]
+               newSS = S.union (S.fromList qs') ss
+               in
+                closure ((newSS, ts ++ newTrans), newQs) f
+  []    -> ((ss, ts), qs')
+
 
 -- | Returns Complement-automaton of a Buchi automaton.
 -- Resulting automaton is always limit-deterministic.
-buchiComplement :: (Ord q) => NBA q a l   -- ^ The NBA to be complemented
-                           -> NBA q a l   -- ^ The complement-NBA
-buchiComplement a = undefined
+buchiComplement :: (Ord q, Ord a) => NBA q a l       -- ^ The NBA to be complemented
+                                  -> NBA (CompState q) a ()  -- ^ The complement-NBA
+buchiComplement a = let
+  sigma = alphabet a
+  newStart = [PowerState (S.toList (start a))]
+  powerTrans qs = powerSucc a qs
+  trans (PowerState qs) = [(l, PowerState qs') | (qs', l) <- powerTrans qs] ++
+                          [(l, RankState (r, [])) | (qs', l) <- powerTrans qs
+                                                  , r <- generateLevelRankings a (S.fromList qs')]
+  trans (RankState (ranking, qs)) = let ranking' l = aSuccRanking a ranking l in
+    case qs of
+      [] -> [(l, RankState (ranking' l, evenPart (ranking' l))) | l <- sigma]
+      _  -> [(l, RankState (ranking' l, [q' | q' <- powerASucc a qs l
+                                         , isEven (ranking' l M.! q')]))
+            | l <- sigma]
+  (ss, newTrans) = transClosure newStart trans
+  newQs = S.toList ss
+  newAcc =  [RankState (r, o) | RankState (r, o) <- newQs
+                              , o == []]
+
+  in
+    makeNBA [(q, ()) | q <- newQs] newTrans newStart newAcc
+
 
 
 -- | Constructs an NBA from components

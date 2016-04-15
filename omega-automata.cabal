@@ -44,4 +44,4 @@ executable ldba-tool
     , omega-automata
     , attoparsec
     , bytestring
-  ghc-options: -Wall
+  ghc-options: -Wall -fno-warn-unused-do-bind
