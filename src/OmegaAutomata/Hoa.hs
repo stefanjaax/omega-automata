@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Parser for the Hanoi omega automata format (https://github.com/adl/hoaf)
-module OmegaAutomata.Hoa ( AliasName(..)
+module OmegaAutomata.Hoa ( AliasName
                          , LabelExpr(..)
                          , HoaAccCond(..)
                          , MinMax(..)
@@ -22,10 +22,8 @@ import Data.Attoparsec.ByteString hiding (takeWhile)
 import Data.Attoparsec.ByteString.Char8 hiding (takeWhile1, inClass)
 import Data.Attoparsec.Expr
 import Control.Applicative
-import Control.Monad (guard)
 import Control.Monad.State as SM
-import Data.List (intersperse)
-import Data.Maybe (catMaybes)
+import Data.List (intersperse, nub)
 import qualified Data.Set as S
 
 type AliasName = ByteString
@@ -114,7 +112,8 @@ instance MBoolExpr HoaAccCond where
   _true = AccBoolExpr True
   _false = AccBoolExpr False
 
-
+-- | The actual parser
+--   Returns a tuple of headeritems and bodyitems
 parseHoa :: Parser ([HeaderItem], [BodyItem])
 parseHoa = do
   parseAttribute "HOA"
@@ -126,25 +125,12 @@ parseHoa = do
   return (hs, bs)
 
 
-toNBAAccCond :: [BodyItem] -> S.Set Int
-toNBAAccCond bs = S.fromList [i | BodyItem _ i _ (Just _) _ <- bs]
-
-
 hoaToEdges :: [BodyItem] -> [(A.State, Maybe LabelExpr, A.State)]
 hoaToEdges bs = [(q1, l, q2) | b <- bs
                              , e <- edges b
                              , let q1 = num b
                              , q2 <- stateConj e
                              , let l = edgeLabel e]
-
-
-hoaToAccEdges :: [BodyItem] -> [(A.State, Maybe LabelExpr, A.State)]
-hoaToAccEdges bs = [(q1, l, q2) | b <- bs
-                                , e <- edges b
-                                , accSig e /= Nothing
-                                , let q1 = num b
-                                , q2 <- stateConj e
-                                , let l = edgeLabel e]
 
 
 hoaToStates :: [BodyItem] -> [(A.State, Maybe LabelExpr)]
@@ -155,7 +141,9 @@ hoaToStartStates :: [HeaderItem] -> [A.State]
 hoaToStartStates hs = concat [qs | Start qs <- hs]
 
 
-hoaToNBA :: ([HeaderItem], [BodyItem]) -> A.NBA A.State (Maybe LabelExpr) (Maybe LabelExpr)
+-- | Convert parsed Hoa to NBA.
+hoaToNBA :: ([HeaderItem], [BodyItem])
+         -> A.NBA A.State (Maybe LabelExpr) (Maybe LabelExpr)
 hoaToNBA (hs, bs) = let qs = hoaToStates bs
                         ts = hoaToEdges bs
                         ss = hoaToStartStates hs
@@ -225,7 +213,7 @@ parseHeaderItem = do
                           parseAlias i as]
   case r of
     (Alias (s, _)) -> put (i, s:as) >> return r
-    (AP ap) -> put (length ap, as) >> return r
+    (AP p) -> put (length p, as) >> return r
     _ -> return r
 
 
@@ -303,8 +291,8 @@ parseParityName = do
   even_odd <- (string "even" >> return Even) <|>
               (string "odd" >> return Odd)
   skipSpace
-  num <- decimal
-  return (Parity min_max even_odd num)
+  n <- decimal
+  return (Parity min_max even_odd n)
 
 
 parseGRabinName :: Parser AccName
@@ -377,30 +365,33 @@ parseMBoolExpr p ops = buildExpressionParser ops term where
          parens (parseMBoolExpr p ops) <|>
          p
 
+-- | Convert NBA into HOA format
+nbaToHoa :: (Show q, Show l, Ord q) => NBA q (Maybe LabelExpr) l
+                                    -> ([HeaderItem], [BodyItem])
+nbaToHoa a = let
+  sigma = alphabet a
+  hs = [ NumStates $ S.size (states a)
+       , Acceptance (1, InfCond 0)
+       , Start $ [(toNode a q) - 1 | q <- S.toList (start a)]
+       , Tool ["ldba-tool"]
+       , AcceptanceName Buchi
+       ]
+  bs = [BodyItem{ stateLabel = Nothing
+                , num = (toNode a q) - 1
+                , descr = Nothing
+                , stateAccSig = (if isAcc then Just [0] else Nothing)
+                , edges = [EdgeItem{ edgeLabel = s
+                                   , stateConj = nub [(toNode a q') - 1 | q' <- succs]
+                                   , accSig = Nothing
+                                   } | s <- sigma, let succs = aSuccs a q s, succs /= []]
+                }
+         | q <- S.toList (states a), let isAcc = S.member q (accept a)]
+  in (hs, bs)
 
-nbaToHoa :: (Show l, Ord q) => NBA q (Maybe LabelExpr) l -> ([HeaderItem], [BodyItem])
-nbaToHoa a = let sigma = alphabet a
-                 hs = [ AP $ (pack . labelExprToHoa) <$> catMaybes sigma
-                      , Acceptance (1, InfCond 0)
-                      , Start $ graphNodes a
-                      , Tool ["ldba-tool"]
-                      , AcceptanceName Buchi
-                      ]
-                 bs = [BodyItem{ stateLabel = Nothing
-                               , num = toNode a q
-                               , descr = Nothing
-                               , stateAccSig = (if isAcc then Just [0] else Nothing)
-                               , edges = [EdgeItem{ edgeLabel = s
-                                                  , stateConj = [toNode a q' | q' <- aSuccs a q s]
-                                                  , accSig = Nothing
-                                                  } | s <- sigma]
-                               }
-                        | q <- S.toList (states a), let isAcc = S.member q (accept a)]
-                 in (hs, bs)
 
-
+-- | Pretty-print Hoa Format
 toHoa :: ([HeaderItem], [BodyItem]) -> String
-toHoa (hs, bs) = unlines $ ["Hoa: v1"] ++
+toHoa (hs, bs) = unlines $ ["HOA: v1"] ++
                             (headerItemToHoa <$> hs) ++
                             ["--BODY--"] ++
                             [concat (bodyItemToHoa <$> bs) ++ "--END--"]
@@ -412,8 +403,8 @@ headerItemToHoa (AP as) = "AP: " ++ show (length as) ++
                           " " ++ unwords ((inDoubleQuotes . unpack) <$> as)
 headerItemToHoa (Alias (n,l)) = "Alias: @" ++ unpack n ++ " " ++ labelExprToHoa l
 headerItemToHoa (Acceptance (i, a)) = "Acceptance: " ++ show i ++ " " ++ accCondToHoa a
-headerItemToHoa (Start ss) = "Start: " ++ concat  (intersperse " & " (show <$> ss))
-headerItemToHoa (Tool ts) = "tool: " ++ unwords (unpack <$> ts)
+headerItemToHoa (Start ss) = "Start: " ++ concat  (intersperse "&" (show <$> ss))
+headerItemToHoa (Tool ts) = "tool: " ++ unwords (map inDoubleQuotes (unpack <$> ts))
 headerItemToHoa (Name s) = "name: " ++ inDoubleQuotes (unpack s)
 headerItemToHoa (Properties ps) = "properties: " ++ unwords (unpack <$> ps)
 headerItemToHoa (AcceptanceName n) = "acc-name: " ++ accNameToHoa n
@@ -461,7 +452,7 @@ bodyItemToHoa b = ("State: " ++
                    maybeBlank labelExprToHoa (stateLabel b) ++
                    show (num b) ++ " " ++
                    maybeBlank (inDoubleQuotes . unpack) (descr b) ++
-                   maybeBlank (unwords . (map show)) (stateAccSig b) ++ "\n" ++
+                   maybeBlank (inCurls . unwords . map show) (stateAccSig b) ++ "\n" ++
                    unlines [maybeBlank (inBrackets . labelExprToHoa) (edgeLabel e) ++
                             " " ++
                             concat (intersperse "&" (show <$> stateConj e)) ++
