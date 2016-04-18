@@ -59,7 +59,7 @@ succs a q = (\(q', l) -> (toState a q', l)) <$> lsuc (graph a) (toNode a q)
 pres :: (Ord q) => NBA q a l    -- ^ The NBA the state belongs to
                 -> q            -- ^ The state
                 -> [(q, a)]     -- ^ Predecessors and corresponding edge-label.
-pres a q = (\(q, l) -> (toState a q, l)) <$> lpre (graph a) (toNode a q)
+pres a q = (\(q', l) -> (toState a q', l)) <$> lpre (graph a) (toNode a q)
 
 
 -- | Returns list of successor-states for a given state and edge-label
@@ -157,10 +157,10 @@ label q a = let l = lab (graph a) (bimap a B.! q) in
 insertTrans :: (Ord q) => [(q, a, q)]  -- ^ List of transitions
                        -> NBA q a l    -- ^ The original NBA
                        -> NBA q a l    -- ^ The NBA resulting from inserting the transitions
-insertTrans ts a = let edges = [(i1, i2, l) | (q1, l, q2) <- ts
-                                            , let i1 = bimap a B.! q1
-                                            , let i2 = bimap a B.! q2] in
-                        a{graph = insEdges edges (graph a)}
+insertTrans ts a = let es = [(i1, i2, l) | (q1, l, q2) <- ts
+                                         , let i1 = bimap a B.! q1
+                                         , let i2 = bimap a B.! q2] in
+                        a{graph = insEdges es (graph a)}
 
 
 -- | Returns union of two Buchi automata.
@@ -178,22 +178,25 @@ buchiUnion a1 a2 = let (a1', a2') = (annotateStates 1 a1, annotateStates 2 a2)
 
 -- | Returns Intersection of two Buchi automata.
 --   If the automata are limit-deterministic, then so is the returned automaton.
-buchiIntersection :: (Ord q) => NBA q a l                    -- ^ The first NBA
+buchiIntersection :: (Ord q, Eq a) => NBA q a l              -- ^ The first NBA
                              -> NBA q a l                    -- ^ The second NBA
                              -> NBA (Int, (q, q)) a (l, l)   -- ^ The intersection-NBA
 buchiIntersection a1 a2 = let
   stateList = S.toList . states
   newStates = [(q1, q2) | q1 <- (stateList a1), q2 <- (stateList a2)]
   newTrans = [((q1, q2), l, (q1', q2')) | (q1, l, q1') <- trans a1
-                                        , (q2, l, q2') <- trans a2
+                                        , (q2, l', q2') <- trans a2
+                                        , l == l'
                                         , not (S.member q1 (accept a1))
                                         , not (S.member q2 (accept a2))]
   trans1 = [((1, (q1, q2)), l, (2, (q1', q2'))) | (q1, l, q1') <- trans a1
                                                 , (S.member q1 (accept a1))
-                                                , (q2, l, q2') <- trans a2]
+                                                , (q2, l', q2') <- trans a2
+                                                , l == l']
   trans2 = [((2, (q1, q2)), l, (1, (q1', q2'))) | (q2, l, q2') <- trans a2
                                                 , (S.member q2 (accept a2))
-                                                , (q1, l, q1') <- trans a1]
+                                                , (q1, l', q1') <- trans a1
+                                                , l == l']
   newLabelQs = [((q1, q2), (l1, l2)) | (q1, q2) <- newStates
                                      , let l1 = label q1 a1
                                      , let l2 = label q2 a2]
@@ -215,16 +218,16 @@ buchiComplement a = let
   sigma = alphabet a
   newStart = [PowerState (S.toList (start a))]
   powerTrans qs = powerSucc a qs
-  trans (PowerState qs) = [(l, PowerState qs') | (qs', l) <- powerTrans qs] ++
-                          [(l, RankState (r, [])) | (qs', l) <- powerTrans qs
+  trans' (PowerState qs) = [(l, PowerState qs') | (qs', l) <- powerTrans qs] ++
+                           [(l, RankState (r, [])) | (qs', l) <- powerTrans qs
                                                   , r <- generateLevelRankings a (S.fromList qs')]
-  trans (RankState (ranking, qs)) = let ranking' l = aSuccRanking a ranking l in
+  trans' (RankState (ranking, qs)) = let ranking' l = aSuccRanking a ranking l in
     case qs of
       [] -> [(l, RankState (ranking' l, evenPart (ranking' l))) | l <- sigma]
       _  -> [(l, RankState (ranking' l, [q' | q' <- powerASucc a qs l
                                          , isEven (ranking' l M.! q')]))
             | l <- sigma]
-  (ss, newTrans) = transClosure newStart trans
+  (ss, newTrans) = transClosure newStart trans'
   newQs = S.toList ss
   newAcc =  [RankState (r, o) | RankState (r, o) <- newQs
                               , o == []]
@@ -242,7 +245,7 @@ makeNBA :: (Ord q) => [(q, l)]           -- ^ List of labelled states
                    -> NBA q a l          -- ^ The resulting NBA
 makeNBA qs ts ss as = let lNodes = zip [1..] (snd <$> qs)
                           assoc = zip (fst <$> qs) [1..] in
-                           insertTrans ts $ NBA{ states = S.fromList [q | (q, l) <- qs]
+                           insertTrans ts $ NBA{ states = S.fromList [q | (q, _) <- qs]
                                                , graph = mkGraph lNodes []
                                                , bimap = B.fromList assoc
                                                , start = S.fromList ss
@@ -278,14 +281,14 @@ roundEven i = if even i then i else i - 1
 
 
 predRanks :: (Ord q, Eq a) => q -> a -> Ranking q -> NBA q a l -> [Int]
-predRanks q label ranking automaton = let qs = aPres automaton q label in
-  [i | (Rank i) <- [ranking M.! q | q <- qs, (ranking M.! q) /= Bot]]
+predRanks q l ranking automaton = let qs = aPres automaton q l in
+  [i | (Rank i) <- [ranking M.! q' | q' <- qs, (ranking M.! q') /= Bot]]
 
 
 tighten :: (Ord q) => Ranking q -> NBA q a l -> Ranking q
 tighten ranking a = M.mapWithKey newRank ranking where
-  newRank q Bot = Bot
-  newRank q (Rank r) = if S.member q (accept a) then
+  newRank _ Bot = Bot
+  newRank q (Rank _) = if S.member q (accept a) then
                         Rank $ 2 * (countOddUnderlings q ranking)
                        else
                         Rank $ 2 * (countOddUnderlings q ranking) + 1
@@ -293,7 +296,7 @@ tighten ranking a = M.mapWithKey newRank ranking where
 
 aSuccRanking :: (Ord q, Eq a) => NBA q a l -> Ranking q -> a -> Ranking q
 aSuccRanking automaton ranking l = tighten ranking' automaton where
-  newRank q i = let ps = predRanks q l ranking automaton in
+  newRank q _ = let ps = predRanks q l ranking automaton in
     if ps == [] then
       Bot
     else

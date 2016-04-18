@@ -299,9 +299,9 @@ parseGRabinName :: Parser AccName
 parseGRabinName = do
   string "generalized-Rabin"
   skipSpace
-  num <- decimal
-  nums <- count num decimal
-  return $ GRabin num nums
+  n <- decimal
+  nums <- count n decimal
+  return $ GRabin n nums
 
 
 parseLabelExpr :: Int -> [AliasName] -> Parser LabelExpr
@@ -321,7 +321,7 @@ parseHoaAccCond = do
           parseInf i <|>
           parseCompFin i<|>
           parseCompInf i
-    parseAcc str p = skipNonToken (string str) >> parens p
+    parseAcc str p' = skipNonToken (string str) >> parens p'
     parseFin i = parseAcc "Fin" (FinCond <$> parseIntInRange i)
     parseInf i = parseAcc "Inf" (InfCond <$> parseIntInRange i)
     parseCompFin i = parseAcc "Fin" (string "!" >> (FinCond <$> parseIntInRange i))
@@ -381,9 +381,9 @@ nbaToHoa a = let
                 , descr = Nothing
                 , stateAccSig = (if isAcc then Just [0] else Nothing)
                 , edges = [EdgeItem{ edgeLabel = s
-                                   , stateConj = nub [(toNode a q') - 1 | q' <- succs]
+                                   , stateConj = nub [(toNode a q') - 1 | q' <- succs']
                                    , accSig = Nothing
-                                   } | s <- sigma, let succs = aSuccs a q s, succs /= []]
+                                   } | s <- sigma, let succs' = aSuccs a q s, succs' /= []]
                 }
          | q <- S.toList (states a), let isAcc = S.member q (accept a)]
   in (hs, bs)
@@ -420,7 +420,7 @@ accNameToHoa a = case a of
   (GCoBuchi i) -> "generalized-co-Buchi " ++ show i
   (Streett i) -> "Streett " ++ show i
   (Rabin i) -> "Rabin " ++ show i
-  (Parity a b i) -> "Parity " ++ minMaxToHoa a ++ evenOddToHoa b ++ " " ++ show i where
+  (Parity as b i) -> "Parity " ++ minMaxToHoa as ++ evenOddToHoa b ++ " " ++ show i where
     minMaxToHoa Min = "min"
     minMaxToHoa Max = "max"
     evenOddToHoa Even = "even"
