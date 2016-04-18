@@ -164,7 +164,7 @@ insertTrans ts a = let es = [(i1, i2, l) | (q1, l, q2) <- ts
 
 
 -- | Returns union of two Buchi automata.
--- | If the automata are limit-deterministic, the so is the returned automaton.
+-- | If the automata are limit-deterministic theb so is the returned automaton.
 buchiUnion :: (Ord q) => NBA q a l                -- ^ The first NBA
                       -> NBA q a l                -- ^ The second NBA
                       -> NBA (Int, q) a l         -- ^ The union-NBA
@@ -177,7 +177,7 @@ buchiUnion a1 a2 = let (a1', a2') = (annotateStates 1 a1, annotateStates 2 a2)
 
 
 -- | Returns Intersection of two Buchi automata.
---   If the automata are limit-deterministic, then so is the returned automaton.
+--   If the automata are limit-deterministic then so is the returned automaton.
 buchiIntersection :: (Ord q, Eq a) => NBA q a l              -- ^ The first NBA
                              -> NBA q a l                    -- ^ The second NBA
                              -> NBA (Int, (q, q)) a (l, l)   -- ^ The intersection-NBA
@@ -204,10 +204,12 @@ buchiIntersection a1 a2 = let
                                        , q2 <- S.toList (start a2)]
   newAcc = S.fromList [(2, (q1, q2)) | q1 <- stateList a1
                                      , q2 <- S.toList (accept a2)]
-  a = makeNBA newLabelQs newTrans [] [] in
-    (insertTrans (trans1 ++ trans2) (buchiUnion a a)){ start = newStart
-                                                     , accept = newAcc
-                                                     }
+  a = makeNBA newLabelQs newTrans [] []
+  compAutomaton = (insertTrans (trans1 ++ trans2) (buchiUnion a a)){ start = newStart
+                                                                   , accept = newAcc
+                                                                   }
+  in
+    reduceAutomaton  compAutomaton
 
 
 -- | Returns Complement-automaton of a Buchi automaton.
@@ -218,14 +220,14 @@ buchiComplement a = let
   sigma = alphabet a
   newStart = [PowerState (S.toList (start a))]
   powerTrans qs = powerSucc a qs
-  trans' (PowerState qs) = [(l, PowerState qs') | (qs', l) <- powerTrans qs] ++
-                           [(l, RankState (r, [])) | (qs', l) <- powerTrans qs
+  trans' (PowerState qs) = [(PowerState qs', l) | (qs', l) <- powerTrans qs] ++
+                           [(RankState (r, []), l) | (qs', l) <- powerTrans qs
                                                   , r <- generateLevelRankings a (S.fromList qs')]
   trans' (RankState (ranking, qs)) = let ranking' l = aSuccRanking a ranking l in
     case qs of
-      [] -> [(l, RankState (ranking' l, evenPart (ranking' l))) | l <- sigma]
-      _  -> [(l, RankState (ranking' l, [q' | q' <- powerASucc a qs l
-                                         , isEven (ranking' l M.! q')]))
+      [] -> [(RankState (ranking' l, evenPart (ranking' l)), l) | l <- sigma]
+      _  -> [(RankState (ranking' l, [q' | q' <- powerASucc a qs l
+                                         , isEven (ranking' l M.! q')]), l)
             | l <- sigma]
   (ss, newTrans) = transClosure newStart trans'
   newQs = S.toList ss
@@ -235,6 +237,15 @@ buchiComplement a = let
   in
     makeNBA [(q, ()) | q <- newQs] newTrans newStart newAcc
 
+
+-- | Reduces automaton to states reachable from initial states
+reduceAutomaton :: (Ord q, Eq a) => NBA q a l   -- ^ Input automaton
+                                 -> NBA q a l   -- ^ Equivalent reduced automaton
+reduceAutomaton a = let (qs, newTs) = transClosure (S.toList (start a)) (succs a)
+                        newStart = S.toList $ S.intersection (start a) qs
+                        newAcc = S.toList $ S.intersection (accept a) qs
+                        newStates = [(q, l) | q <- S.toList qs, let l = label q a] in
+  makeNBA newStates newTs newStart newAcc
 
 
 -- | Constructs an NBA from components
@@ -326,17 +337,18 @@ generateLevelRankings a xs = let
     map M.fromList $ rs $ S.toList (states a)
 
 -- | Compute transitive closure starting from a list of states
-transClosure :: (Ord q) => [q]                    -- ^ list of initial states
-                        -> (q -> [(a, q)])        -- ^ custom transition function
-                        -> (S.Set q, [(q, a, q)]) -- the states in the closure and the transitions
-transClosure qs f = fst $ closure ((S.fromList [], []), qs) f where
+transClosure :: (Ord q, Eq a) => [q]                    -- ^ list of initial states
+                              -> (q -> [(q, a)])        -- ^ custom transition function
+                              -> (S.Set q, [(q, a, q)]) -- the states in the closure and the transitions
+transClosure qs f = (qs', nub ts) where
+  (qs', ts) = fst $ closure ((S.fromList [], []), qs) f
 
 
-closure :: (Ord q) => ((S.Set q, [(q, a, q)]), [q])
-                   -> (q -> [(a, q)])
-                   -> ((S.Set q, [(q, a, q)]), [q])
+closure :: (Ord q, Eq a) => ((S.Set q, [(q, a, q)]), [q])
+                         -> (q -> [(q, a)])
+                         -> ((S.Set q, [(q, a, q)]), [q])
 closure ((ss, ts), qs') f = case qs' of
-  (_:_) -> let newTrans = [(q1, a, q2) | q1 <- qs', (a, q2) <- f q1]
+  (_:_) -> let newTrans = nub [(q1, a, q2) | q1 <- qs', (q2, a) <- f q1]
                newQs = [q | (_, _, q) <- newTrans, not (S.member q ss)]
                newSS = S.union (S.fromList qs') ss
                in
