@@ -4,7 +4,6 @@ omega-automata
 A Haskell module for processing omega automata
 
 It currently only supports state-based Büchi automata.
-## Usage
 
 Library features
 ----------------
