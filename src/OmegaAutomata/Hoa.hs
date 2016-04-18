@@ -23,7 +23,7 @@ import Data.Attoparsec.ByteString.Char8 hiding (takeWhile1, inClass)
 import Data.Attoparsec.Expr
 import Control.Applicative
 import Control.Monad.State as SM
-import Data.List (intersperse, nub)
+import Data.List (intersperse)
 import qualified Data.Set as S
 
 type AliasName = ByteString
@@ -369,7 +369,6 @@ parseMBoolExpr p ops = buildExpressionParser ops term where
 nbaToHoa :: (Show q, Show l, Ord q) => NBA q (Maybe LabelExpr) l
                                     -> ([HeaderItem], [BodyItem])
 nbaToHoa a = let
-  sigma = alphabet a
   hs = [ NumStates $ S.size (states a)
        , Acceptance (1, InfCond 0)
        , Start $ [(toNode a q) - 1 | q <- S.toList (start a)]
@@ -380,10 +379,10 @@ nbaToHoa a = let
                 , num = (toNode a q) - 1
                 , descr = Nothing
                 , stateAccSig = (if isAcc then Just [0] else Nothing)
-                , edges = [EdgeItem{ edgeLabel = s
-                                   , stateConj = nub [(toNode a q') - 1 | q' <- succs']
+                , edges = [EdgeItem{ edgeLabel = l
+                                   , stateConj = [(toNode a q') - 1]
                                    , accSig = Nothing
-                                   } | s <- sigma, let succs' = aSuccs a q s, succs' /= []]
+                                   } | (q', l) <- succs a q]
                 }
          | q <- S.toList (states a), let isAcc = S.member q (accept a)]
   in (hs, bs)
