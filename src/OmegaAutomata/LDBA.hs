@@ -6,6 +6,7 @@ import qualified Data.Set as S
 import qualified  Data.Map as  M
 import qualified Data.Bimap as B
 import Data.List (nub)
+
 type PowerPair q = ([q], [q])
 
 

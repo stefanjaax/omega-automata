@@ -14,19 +14,16 @@ module OmegaAutomata.Hoa ( AliasName
                          , toHoa
                          , nbaToHoa
                          , hoaToNBA) where
-import OmegaAutomata.Automata as A
-import Prelude hiding (takeWhile)
-import Data.ByteString (ByteString)
-import Data.ByteString.Char8 (pack, unpack)
-import Data.Attoparsec.ByteString hiding (takeWhile)
-import Data.Attoparsec.ByteString.Char8 hiding (takeWhile1, inClass)
+import qualified OmegaAutomata.Automata as A
+import qualified Data.Text as T
+import Data.Attoparsec.Text
 import Data.Attoparsec.Expr
 import Control.Applicative
 import Control.Monad.State as SM
 import Data.List (intersperse)
 import qualified Data.Set as S
 
-type AliasName = ByteString
+type AliasName = T.Text
 
 data LabelExpr = LBoolExpr Bool
                | RefAP Int
@@ -62,13 +59,13 @@ data AccName = Buchi
              deriving Show
 
 data HeaderItem = NumStates Int
-                | AP [ByteString]
+                | AP [T.Text]
                 | Alias (AliasName, LabelExpr)
                 | Acceptance (Int, HoaAccCond)
                 | Start [Int]
-                | Tool [ByteString]
-                | Name ByteString
-                | Properties [ByteString]
+                | Tool [T.Text]
+                | Name T.Text
+                | Properties [T.Text]
                 | AcceptanceName AccName
                 deriving Show
 
@@ -82,7 +79,7 @@ data EdgeItem = EdgeItem
 data BodyItem = BodyItem
                 { stateLabel :: Maybe LabelExpr
                 , num :: Int
-                , descr :: Maybe ByteString
+                , descr :: Maybe T.Text
                 , stateAccSig :: Maybe [Int]
                 , edges :: [EdgeItem]
                 }
@@ -148,7 +145,7 @@ hoaToNBA (hs, bs) = let qs = hoaToStates bs
                         ts = hoaToEdges bs
                         ss = hoaToStartStates hs
                         as = [q | BodyItem _ q _ (Just _) _ <- bs] in
-                          makeNBA qs ts ss as
+                          A.makeNBA qs ts ss as
 
 
 parseBodyItem :: Int -> [AliasName] -> Parser BodyItem
@@ -184,7 +181,7 @@ parseAccSig :: Parser [Int]
 parseAccSig = curls $ parseSpaceSeparated decimal
 
 
-parseAttribute :: ByteString -> Parser ()
+parseAttribute :: T.Text -> Parser ()
 parseAttribute a = do
   skipNonToken $ string a
   skipNonToken $ string ":"
@@ -336,7 +333,7 @@ parseAP = do
   return (AP aps)
 
 
-parseIdentifier :: Parser ByteString
+parseIdentifier :: Parser T.Text
 parseIdentifier = takeWhile1 (inClass "0-9a-zA-Z_-")
 
 
@@ -348,17 +345,17 @@ parseConjunction :: Parser a -> Parser [a]
 parseConjunction p = p `sepBy1` skipNonToken (string "&")
 
 
-monotonicBoolOps :: MBoolExpr a => [[Operator ByteString a]]
+monotonicBoolOps :: MBoolExpr a => [[Operator T.Text a]]
 monotonicBoolOps = [[Infix (skipNonToken (string "|") >> return _or) AssocLeft]
                    ,[Infix (skipNonToken (string "&") >> return _and) AssocLeft]
                    ]
 
 
-boolOps :: BoolExpr a => [[Operator ByteString a]]
+boolOps :: BoolExpr a => [[Operator T.Text a]]
 boolOps = [[Prefix (skipNonToken (string "!") >> return _not)]] ++ monotonicBoolOps
 
 
-parseMBoolExpr :: (MBoolExpr a) => Parser a -> [[Operator ByteString a]] -> Parser a
+parseMBoolExpr :: (MBoolExpr a) => Parser a -> [[Operator T.Text a]] -> Parser a
 parseMBoolExpr p ops = buildExpressionParser ops term where
   term = (skipNonToken (string "t") >> return _true) <|>
          (skipNonToken (string "f") >> return _false) <|>
@@ -366,25 +363,25 @@ parseMBoolExpr p ops = buildExpressionParser ops term where
          p
 
 -- | Convert NBA into HOA format
-nbaToHoa :: (Show q, Show l, Ord q) => NBA q (Maybe LabelExpr) l
+nbaToHoa :: (Show q, Show l, Ord q) => A.NBA q (Maybe LabelExpr) l
                                     -> ([HeaderItem], [BodyItem])
 nbaToHoa a = let
-  hs = [ NumStates $ S.size (states a)
+  hs = [ NumStates $ S.size (A.states a)
        , Acceptance (1, InfCond 0)
-       , Start $ [(toNode a q) - 1 | q <- S.toList (start a)]
+       , Start $ [(A.toNode a q) - 1 | q <- S.toList (A.start a)]
        , Tool ["ldba-tool"]
        , AcceptanceName Buchi
        ]
   bs = [BodyItem{ stateLabel = Nothing
-                , num = (toNode a q) - 1
+                , num = (A.toNode a q) - 1
                 , descr = Nothing
                 , stateAccSig = (if isAcc then Just [0] else Nothing)
                 , edges = [EdgeItem{ edgeLabel = l
-                                   , stateConj = [(toNode a q') - 1]
+                                   , stateConj = [(A.toNode a q') - 1]
                                    , accSig = Nothing
-                                   } | (q', l) <- succs a q]
+                                   } | (q', l) <- A.succs a q]
                 }
-         | q <- S.toList (states a), let isAcc = S.member q (accept a)]
+         | q <- S.toList (A.states a), let isAcc = S.member q (A.accept a)]
   in (hs, bs)
 
 
@@ -399,13 +396,13 @@ toHoa (hs, bs) = unlines $ ["HOA: v1"] ++
 headerItemToHoa :: HeaderItem -> String
 headerItemToHoa (NumStates i) = "States: " ++ show i
 headerItemToHoa (AP as) = "AP: " ++ show (length as) ++
-                          " " ++ unwords ((inDoubleQuotes . unpack) <$> as)
-headerItemToHoa (Alias (n,l)) = "Alias: @" ++ unpack n ++ " " ++ labelExprToHoa l
+                          " " ++ unwords ((inDoubleQuotes . T.unpack) <$> as)
+headerItemToHoa (Alias (n,l)) = "Alias: @" ++ T.unpack n ++ " " ++ labelExprToHoa l
 headerItemToHoa (Acceptance (i, a)) = "Acceptance: " ++ show i ++ " " ++ accCondToHoa a
 headerItemToHoa (Start ss) = "Start: " ++ concat  (intersperse "&" (show <$> ss))
-headerItemToHoa (Tool ts) = "tool: " ++ unwords (map inDoubleQuotes (unpack <$> ts))
-headerItemToHoa (Name s) = "name: " ++ inDoubleQuotes (unpack s)
-headerItemToHoa (Properties ps) = "properties: " ++ unwords (unpack <$> ps)
+headerItemToHoa (Tool ts) = "tool: " ++ unwords (map inDoubleQuotes (T.unpack <$> ts))
+headerItemToHoa (Name s) = "name: " ++ inDoubleQuotes (T.unpack s)
+headerItemToHoa (Properties ps) = "properties: " ++ unwords (T.unpack <$> ps)
 headerItemToHoa (AcceptanceName n) = "acc-name: " ++ accNameToHoa n
 
 
@@ -440,7 +437,7 @@ accCondToHoa (AccBoolExpr b) = if b then "t" else "f"
 labelExprToHoa :: LabelExpr -> String
 labelExprToHoa (LBoolExpr b) = if b then "t" else "f"
 labelExprToHoa (RefAP i) = show i
-labelExprToHoa (RefAlias s) = "@" ++ unpack s
+labelExprToHoa (RefAlias s) = "@" ++ T.unpack s
 labelExprToHoa (LNot e) = "!" ++ labelExprToHoa e
 labelExprToHoa (LAnd e1 e2) = inParens (labelExprToHoa e1 ++ " & " ++ labelExprToHoa e2)
 labelExprToHoa (LOr e1 e2) = inParens (labelExprToHoa e1 ++ " | " ++ labelExprToHoa e2)
@@ -450,7 +447,7 @@ bodyItemToHoa :: BodyItem -> String
 bodyItemToHoa b = ("State: " ++
                    maybeBlank labelExprToHoa (stateLabel b) ++
                    show (num b) ++ " " ++
-                   maybeBlank (inDoubleQuotes . unpack) (descr b) ++
+                   maybeBlank (inDoubleQuotes . T.unpack) (descr b) ++
                    maybeBlank (inCurls . unwords . map show) (stateAccSig b) ++ "\n" ++
                    unlines [maybeBlank (inBrackets . labelExprToHoa) (edgeLabel e) ++
                             " " ++
@@ -460,7 +457,7 @@ bodyItemToHoa b = ("State: " ++
                             | e <- edges b])
 
 
-embracedBy :: Parser a -> ByteString -> ByteString -> Parser a
+embracedBy :: Parser a -> T.Text -> T.Text -> Parser a
 embracedBy p s1 s2 = do
   skipNonToken $ string s1
   r <- p
@@ -489,12 +486,12 @@ skipNonToken p =  do
   p
 
 
-parseDoubleQuotedString :: Parser ByteString
+parseDoubleQuotedString :: Parser T.Text
 parseDoubleQuotedString = do
   char '"'
   x <- many (notChar '\"' <|> (char '\\' >> char '\"'))
   char '"'
-  return $ pack x
+  return $ T.pack x
 
 
 parseIntInRange :: Int -> Parser Int

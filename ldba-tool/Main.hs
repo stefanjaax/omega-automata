@@ -3,9 +3,9 @@ module Main where
 import OmegaAutomata.Hoa
 import OmegaAutomata.LDBA
 import OmegaAutomata.Automata
-import Data.Attoparsec.ByteString
-import qualified Data.ByteString as BS
-import Data.ByteString.Char8 (pack)
+import Data.Attoparsec.Text
+import qualified Data.Text as T
+import qualified  Data.Text.IO as IOT
 import System.Environment
 import System.Exit
 
@@ -22,7 +22,7 @@ printHoa (hs, _) automaton = let
     putStr $ toHoa (props ++ hs', bs)
 
 
-parseHoaOrExit :: BS.ByteString -> IO ([HeaderItem], [BodyItem])
+parseHoaOrExit :: T.Text -> IO ([HeaderItem], [BodyItem])
 parseHoaOrExit s = do
   let p = parseOnly parseHoa s
   case p of
@@ -30,39 +30,39 @@ parseHoaOrExit s = do
     _ -> putStrLn "An error occured during parsing of HOA input." >> die'
 
 
-action2LDBA :: String -> IO ()
+action2LDBA :: T.Text -> IO ()
 action2LDBA s = do
-  hoa <- parseHoaOrExit (pack s)
+  hoa <- parseHoaOrExit s
   let nba = hoaToNBA hoa
   printHoa hoa (toLDBA nba)
 
 
-action2Complement :: String -> IO ()
+action2Complement :: T.Text -> IO ()
 action2Complement s = do
-  hoa <- parseHoaOrExit (pack s)
+  hoa <- parseHoaOrExit s
   let nba = hoaToNBA hoa
   printHoa hoa (buchiComplement nba)
 
 
-actionIntersection :: String -> String -> IO ()
+actionIntersection :: T.Text -> T.Text -> IO ()
 actionIntersection s1 s2 = do
-  hoa1 <- parseHoaOrExit (pack s1)
-  hoa2 <- parseHoaOrExit (pack s2)
+  hoa1 <- parseHoaOrExit s1
+  hoa2 <- parseHoaOrExit s2
   let (nba1, nba2) = (hoaToNBA hoa1, hoaToNBA hoa2)
   printHoa hoa1 (buchiIntersection nba1 nba2)
 
 
-actionUnion :: String -> String -> IO ()
+actionUnion :: T.Text -> T.Text -> IO ()
 actionUnion s1 s2 = do
-  hoa1 <- parseHoaOrExit (pack s1)
-  hoa2 <- parseHoaOrExit (pack s2)
+  hoa1 <- parseHoaOrExit s1
+  hoa2 <- parseHoaOrExit s2
   let (nba1, nba2) = (hoaToNBA hoa1, hoaToNBA hoa2)
   printHoa hoa1 (buchiUnion nba1 nba2)
 
 
-actionIsLDBA :: String -> IO ()
+actionIsLDBA :: T.Text -> IO ()
 actionIsLDBA s  = do
-  hoa <- parseHoaOrExit (pack s)
+  hoa <- parseHoaOrExit s
   let isLDBA = isLimitDeterministic $ hoaToNBA hoa
   putStrLn (if isLDBA then "true" else "false")
 
@@ -77,22 +77,22 @@ actionsForArgs ["-h"] = usage >> exit
 actionsForArgs ["--help"] = usage >> exit
 actionsForArgs _ = usage >> die'
 
-pipeOrFile :: [String] -> (String -> IO ()) -> IO ()
+pipeOrFile :: [String] -> (T.Text -> IO ()) -> IO ()
 pipeOrFile xs action = case xs of
-  [] -> getContents >>= action
-  [fn] -> readFile fn >>= action
+  [] -> IOT.getContents >>= action
+  [fn] -> IOT.readFile fn >>= action
   _ -> usage >> die'
 
 
-pipeOrFiles :: [String] -> (String -> String -> IO ()) -> IO ()
+pipeOrFiles :: [String] -> (T.Text -> T.Text -> IO ()) -> IO ()
 pipeOrFiles xs action = case xs of
   [fn] -> do
-    s1 <- getContents
-    s2 <- readFile fn
+    s1 <- IOT.getContents
+    s2 <- IOT.readFile fn
     action s1 s2
   [fn1, fn2] -> do
-    s1 <- readFile fn1
-    s2 <- readFile fn2
+    s1 <- IOT.readFile fn1
+    s2 <- IOT.readFile fn2
     action s1 s2
   _ -> usage >> die'
 
